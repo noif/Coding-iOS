@@ -7,10 +7,16 @@
 //
 
 #import "BaseViewController.h"
-#import "OTPAuthURL.h"
+#import <AVFoundation/AVFoundation.h>
 
 @interface ZXScanCodeViewController : BaseViewController
+@property (strong, nonatomic, readonly) AVCaptureVideoPreviewLayer *videoPreviewLayer;
 
-@property (copy, nonatomic) void(^sucessScanBlock)(OTPAuthURL *authURL);
+@property (assign, nonatomic, readonly) BOOL isScaning;
+
+- (void)startScan;
+- (void)stopScan;
+
+@property (copy, nonatomic) void(^scanResultBlock)(ZXScanCodeViewController *vc, NSString *resultStr);
 
 @end

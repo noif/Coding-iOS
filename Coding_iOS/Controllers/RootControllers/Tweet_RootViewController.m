@@ -25,11 +25,10 @@
 #import "TweetSendLocationDetailViewController.h"
 #import "CodingBannersView.h"
 
-#import "CSSearchVC.h"
-#import "CSSearchDisplayVC.h"
 #import "FunctionTipsManager.h"
+#import "CSHotTopicPagesVC.h"
 
-@interface Tweet_RootViewController () <UISearchBarDelegate, UISearchDisplayDelegate>
+@interface Tweet_RootViewController ()
 {
     CGFloat _oldPanOffsetY;
 }
@@ -49,9 +48,6 @@
 @property (strong, nonatomic) Tweet *deleteTweet;
 @property (nonatomic, assign) NSInteger deleteTweetsIndex;
 
-//搜索
-@property (nonatomic, strong) UISearchBar       *searchBar;
-@property (strong, nonatomic) CSSearchDisplayVC *searchDisplayVC;
 //Banner
 @property (strong, nonatomic) CodingBannersView *myBannersView;
 @end
@@ -61,6 +57,10 @@
     Tweet_RootViewController *vc = [Tweet_RootViewController new];
     vc.curIndex = type;
     return vc;
+}
+
+- (Tweet_RootViewControllerType)type{
+    return _curIndex;
 }
 
 - (instancetype)init
@@ -103,8 +103,9 @@
 //                              [self refreshFirst];
 //                          }];
     
-    UIBarButtonItem *leftBarItem =[UIBarButtonItem itemWithIcon:@"search_Nav" showBadge:NO target:self action:@selector(searchItemClicked:)];
-    [self.parentViewController.navigationItem setLeftBarButtonItem:leftBarItem animated:NO];
+//    UIBarButtonItem *leftBarItem = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"hot_topic_Nav"] style:UIBarButtonItemStylePlain target:self action:@selector(hotTopicBtnClicked:)];
+//
+//    [self.parentViewController.navigationItem setLeftBarButtonItem:leftBarItem animated:NO];
     
     _tweetsDict = [[NSMutableDictionary alloc] initWithCapacity:4];
 
@@ -131,6 +132,9 @@
             UIEdgeInsets insets = UIEdgeInsetsMake(0, 0, CGRectGetHeight(self.rdv_tabBarController.tabBar.frame), 0);
             tableView.contentInset = insets;
         }
+        tableView.estimatedRowHeight = 0;
+        tableView.estimatedSectionHeaderHeight = 0;
+        tableView.estimatedSectionFooterHeight = 0;
         tableView;
     });
     _refreshControl = [[ODRefreshControl alloc] initInScrollView:self.myTableView];
@@ -151,14 +155,7 @@
 
 - (void)viewDidAppear:(BOOL)animated{
     [super viewDidAppear:animated];
-    
-    UIButton *leftItemView = (UIButton *)self.parentViewController.navigationItem.leftBarButtonItem.customView;
-    if ([[FunctionTipsManager shareManager] needToTip:kFunctionTipStr_Search]) {
-        [leftItemView addBadgePoint:4 withPointPosition:CGPointMake(25, 0)];
-    }
-    
     [self refreshFirst];
-
     //    键盘
     if (_myMsgInputView) {
         [_myMsgInputView prepareToShow];
@@ -208,7 +205,7 @@
 - (void)messageInputView:(UIMessageInputView *)inputView heightToBottomChenged:(CGFloat)heightToBottom{
     [UIView animateWithDuration:0.25 delay:0.0f options:UIViewAnimationOptionTransitionFlipFromBottom animations:^{
         UIEdgeInsets contentInsets= UIEdgeInsetsMake(0.0, 0.0, heightToBottom, 0.0);;
-        CGFloat msgInputY = kScreen_Height - heightToBottom - 64;
+        CGFloat msgInputY = kScreen_Height - heightToBottom - (44 + kSafeArea_Top);
         
         self.myTableView.contentInset = contentInsets;
         
@@ -234,7 +231,6 @@
     __weak typeof(self) weakSelf = self;
     TweetSendViewController *vc = [[TweetSendViewController alloc] init];
     vc.sendNextTweet = ^(Tweet *nextTweet){
-        [nextTweet saveSendData];//发送前保存草稿
         [[Coding_NetAPIManager sharedManager] request_Tweet_DoTweet_WithObj:nextTweet andBlock:^(id data, NSError *error) {
             if (data) {
                 [Tweet deleteSendData];//发送成功后删除草稿
@@ -249,11 +245,16 @@
                     }
                     [self.myTableView reloadData];
                 }
-                [weakSelf.view configBlankPage:EaseBlankPageTypeTweet hasData:(curTweets.list.count > 0) hasError:(error != nil) reloadButtonBlock:^(id sender) {
+                [weakSelf.view configBlankPage:EaseBlankPageTypeTweetAction hasData:(curTweets.list.count > 0) hasError:(error != nil) reloadButtonBlock:^(id sender) {
                     [weakSelf sendRequest];
                 }];
+                //空白页按钮事件
+                weakSelf.view.blankPageView.clickButtonBlock=^(EaseBlankPageType curType) {
+                    [weakSelf sendTweet];
+                };
+            }else{
+                [nextTweet saveSendData];//发送失败，保存草稿
             }
-
         }];
 
     };
@@ -270,9 +271,13 @@
             if (outTweetsIndex == weakSelf.curIndex) {
                 [weakSelf.myTableView reloadData];
             }
-            [weakSelf.view configBlankPage:EaseBlankPageTypeTweet hasData:(curTweets.list.count > 0) hasError:(error != nil) reloadButtonBlock:^(id sender) {
+            [weakSelf.view configBlankPage:EaseBlankPageTypeTweetAction hasData:(curTweets.list.count > 0) hasError:(error != nil) reloadButtonBlock:^(id sender) {
                 [weakSelf sendRequest];
             }];
+            //空白页按钮事件
+            weakSelf.view.blankPageView.clickButtonBlock=^(EaseBlankPageType curType) {
+                [weakSelf sendTweet];
+            };
         }
     }];
 }
@@ -287,48 +292,13 @@
     }];
 }
 
-#pragma mark - search 
+#pragma mark - nav_LeftBtn
 
-- (void)searchItemClicked:(id)sender{
-    if ([[FunctionTipsManager shareManager] needToTip:kFunctionTipStr_Search]) {
-        [[FunctionTipsManager shareManager] markTiped:kFunctionTipStr_Search];
-        UIButton *leftItemView = (UIButton *)self.parentViewController.navigationItem.leftBarButtonItem.customView;
-        [leftItemView removeBadgePoint];
-    }
+- (void)hotTopicBtnClicked:(id)sender{
+    [MobClick event:kUmeng_Event_Request_ActionOfLocal label:@"冒泡_点击话题"];
     
-    if(!_searchBar) {
-        
-        _searchBar = ({
-            
-            UISearchBar *searchBar = [[UISearchBar alloc] init];
-            searchBar.delegate = self;
-            [searchBar sizeToFit];
-            [searchBar setPlaceholder:@"搜索冒泡、用户名、话题"];
-            [searchBar setTintColor:[UIColor whiteColor]];
-            [searchBar setTranslucent:NO];
-            [searchBar insertBGColor:[UIColor colorWithHexString:@"0x28303b"]];
-            searchBar;
-        });
-        [self.parentViewController.navigationController.view addSubview:_searchBar];
-        [_searchBar setY:20];
-    }
-    
-    if (!_searchDisplayVC) {
-        _searchDisplayVC = ({
-            
-            CSSearchDisplayVC *searchVC = [[CSSearchDisplayVC alloc] initWithSearchBar:_searchBar contentsController:self.parentViewController];
-            searchVC.parentVC = self;
-//            searchVC.delegate = self;
-//            if (kHigher_iOS_6_1) {
-//                
-//                searchVC.displaysSearchBarInNavigationBar = NO;
-//            }
-            searchVC;
-        });
-    }
-
-    [self hideToolBar:YES];
-    [_searchBar becomeFirstResponder];
+    CSHotTopicPagesVC *vc = [CSHotTopicPagesVC new];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 #pragma mark Refresh M
@@ -350,9 +320,14 @@
         [self refresh];
     }
     if (!curTweets.isLoading) {
-        [self.view configBlankPage:EaseBlankPageTypeTweet hasData:(curTweets.list.count > 0) hasError:NO reloadButtonBlock:^(id sender) {
-            [self sendRequest];
+        __weak typeof(self) weakSelf = self;
+        [self.view configBlankPage:EaseBlankPageTypeTweetAction hasData:(curTweets.list.count > 0) hasError:NO reloadButtonBlock:^(id sender) {
+            [weakSelf sendRequest];
         }];
+        //空白页按钮事件
+        self.view.blankPageView.clickButtonBlock=^(EaseBlankPageType curType) {
+            [weakSelf sendTweet];
+        };
     }
 }
 
@@ -390,9 +365,13 @@
             [weakSelf.myTableView reloadData];
             weakSelf.myTableView.showsInfiniteScrolling = curTweets.canLoadMore;
         }
-        [weakSelf.view configBlankPage:EaseBlankPageTypeTweet hasData:(curTweets.list.count > 0) hasError:(error != nil) reloadButtonBlock:^(id sender) {
+        [weakSelf.view configBlankPage:EaseBlankPageTypeTweetAction hasData:(curTweets.list.count > 0) hasError:(error != nil) reloadButtonBlock:^(id sender) {
             [weakSelf sendRequest];
         }];
+        //空白页按钮事件
+        weakSelf.view.blankPageView.clickButtonBlock=^(EaseBlankPageType curType) {
+            [weakSelf sendTweet];
+        };
     }];
 }
 
@@ -429,7 +408,7 @@
 
             if ([Login isLoginUserGlobalKey:weakSelf.commentToUser.global_key]) {
                 ESWeakSelf
-                UIActionSheet *actionSheet = [UIActionSheet bk_actionSheetCustomWithTitle:@"删除此评论" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIActionSheet *sheet, NSInteger index) {
+                UIAlertController *actionSheet = [UIAlertController ea_actionSheetCustomWithTitle:@"删除此评论" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
                     ESStrongSelf
                     if (index == 0 && _self.commentIndex >= 0) {
                         Comment *comment  = [_self.commentTweet.comment_list objectAtIndex:_self.commentIndex];
@@ -444,7 +423,7 @@
         }
         [_myMsgInputView notAndBecomeFirstResponder];
     };
-    cell.likeBtnClickedBlock = ^(Tweet *tweet){
+    cell.cellRefreshBlock = ^(){
         [weakSelf.myTableView reloadData];
     };
     cell.userBtnClickedBlock = ^(User *curUser){
@@ -466,7 +445,7 @@
         
         
         ESWeakSelf
-        UIActionSheet *actionSheet = [UIActionSheet bk_actionSheetCustomWithTitle:@"删除此冒泡" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIActionSheet *sheet, NSInteger index) {
+        UIAlertController *actionSheet = [UIAlertController ea_actionSheetCustomWithTitle:@"删除此冒泡" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
             ESStrongSelf
             if (index == 0) {
                 [_self deleteTweet:_self.deleteTweet outTweetsIndex:_self.deleteTweetsIndex];
@@ -477,7 +456,7 @@
     cell.goToDetailTweetBlock = ^(Tweet *curTweet){
         [self goToDetailWithTweet:curTweet];
     };
-    cell.refreshSingleCCellBlock = ^(){
+    cell.cellRefreshBlock = ^(){
         [weakSelf.myTableView reloadData];
     };
     cell.mediaItemClickedBlock = ^(HtmlMediaItem *curItem){
@@ -507,9 +486,13 @@
         Tweets *curTweets = [weakSelf.tweetsDict objectForKey:[NSNumber numberWithInteger:weakSelf.curIndex]];
         [curTweets.list removeObject:toDeleteTweet];
         [weakSelf.myTableView reloadData];
-        [weakSelf.view configBlankPage:EaseBlankPageTypeTweet hasData:(curTweets.list.count > 0) hasError:NO reloadButtonBlock:^(id sender) {
+        [weakSelf.view configBlankPage:EaseBlankPageTypeTweetAction hasData:(curTweets.list.count > 0) hasError:NO reloadButtonBlock:^(id sender) {
             [weakSelf sendRequest];
         }];
+        //空白页按钮事件
+        weakSelf.view.blankPageView.clickButtonBlock=^(EaseBlankPageType curType) {
+            [weakSelf sendTweet];
+        };
     };
     [self.navigationController pushViewController:vc animated:YES];
 }
@@ -585,9 +568,12 @@
 }
 
 - (void)sendCurComment:(Tweet *)commentObj{
+    [NSObject showHUDQueryStr:@"正在发表评论..."];
     __weak typeof(self) weakSelf = self;
     [[Coding_NetAPIManager sharedManager] request_Tweet_DoComment_WithObj:commentObj andBlock:^(id data, NSError *error) {
+        [NSObject hideHUDQuery];
         if (data) {
+            [NSObject showHudTipStr:@"评论成功"];
             Comment *resultCommnet = (Comment *)data;
             resultCommnet.owner = [Login curLoginUser];
             [commentObj addNewComment:resultCommnet];
@@ -600,38 +586,6 @@
 {
     _myTableView.delegate = nil;
     _myTableView.dataSource = nil;
-}
-
-#pragma mark -
-#pragma mark UISearchBarDelegate Support
-
-- (BOOL)searchBarShouldBeginEditing:(UISearchBar *)searchBar {
-
-    return YES;
-}
-
-- (void)searchBar:(UISearchBar *)searchBar textDidChange:(NSString *)searchText {
-    
-}
-
-- (void)searchBarSearchButtonClicked:(UISearchBar *)searchBar {
-    
-}
-
-- (void)searchBarCancelButtonClicked:(UISearchBar *)searchBar {
-
-    [self hideToolBar:NO];
-}
-
-#pragma mark -
-#pragma mark UISearchDisplayDelegate Support
-
-- (void)searchDisplayController:(UISearchDisplayController *)controller didHideSearchResultsTableView:(UITableView *)tableView {
-    
-}
-
-- (void)searchDisplayControllerDidBeginSearch:(UISearchDisplayController *)controller {
-    
 }
 
 @end

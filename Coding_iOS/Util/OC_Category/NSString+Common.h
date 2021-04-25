@@ -32,10 +32,12 @@
 - (CGFloat)getWidthWithFont:(UIFont *)font constrainedToSize:(CGSize)size;
 -(BOOL)containsEmoji;
 
+- (NSString *)emotionSpecailName;
 - (NSString *)emotionMonkeyName;
 
 + (NSString *)sizeDisplayWithByte:(CGFloat)sizeOfByte;
 
+- (NSString *)stringByRemoveSpecailCharacters;
 - (NSString *)trimWhitespace;
 - (BOOL)isEmpty;
 - (BOOL)isEmptyOrListening;
@@ -43,6 +45,11 @@
 - (BOOL)isPureInt;
 //判断是否为浮点形
 - (BOOL)isPureFloat;
+//判断是否是手机号码或者邮箱
+- (BOOL)isPhoneNo;
+- (BOOL)isEmail;
+- (BOOL)isGK;
+- (BOOL)isFileName;
 
 - (NSRange)rangeByTrimmingLeftCharactersInSet:(NSCharacterSet *)characterSet;
 - (NSRange)rangeByTrimmingRightCharactersInSet:(NSCharacterSet *)characterSet;

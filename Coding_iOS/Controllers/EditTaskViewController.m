@@ -22,6 +22,11 @@
 #import "WebViewController.h"
 #import "ProjectToChooseListViewController.h"
 #import "EditLabelViewController.h"
+#import "TaskResourceReferenceViewController.h"
+#import "NProjectViewController.h"
+#import "FunctionTipsManager.h"
+#import "MartFunctionTipView.h"
+#import "RATaskBoardListListViewController.h"
 
 @interface EditTaskViewController ()<TTTAttributedLabelDelegate>
 @property (strong, nonatomic) UITableView *myTableView;
@@ -53,10 +58,7 @@
         _myMsgInputView = [UIMessageInputView messageInputViewWithType:UIMessageInputViewContentTypeTask];
         _myMsgInputView.isAlwaysShow = YES;
         _myMsgInputView.delegate = self;
-        
-        [self queryToRefreshTaskDetail];
     }
-    [self configTitle];
     
     _myTableView = ({
         UITableView *tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleGrouped];
@@ -74,6 +76,9 @@
         [tableView mas_makeConstraints:^(MASConstraintMaker *make) {
             make.edges.equalTo(self.view);
         }];
+        tableView.estimatedRowHeight = 0;
+        tableView.estimatedSectionHeaderHeight = 0;
+        tableView.estimatedSectionFooterHeight = 0;
         tableView;
     });
     if (_myMsgInputView) {
@@ -87,10 +92,11 @@
     RAC(self.navigationItem.rightBarButtonItem, enabled) =
     [RACSignal combineLatest:@[RACObserve(self, myCopyTask.content),
                                RACObserve(self, myCopyTask.owner),
+                               RACObserve(self, myCopyTask.task_board_list),
                                RACObserve(self, myCopyTask.priority),
                                RACObserve(self, myCopyTask.status),
                                RACObserve(self, myCopyTask.deadline),
-                               RACObserve(self, myCopyTask.task_description.markdown)] reduce:^id (NSString *content, User *owner, NSNumber *priority, NSNumber *status, NSString *deadline){
+                               RACObserve(self, myCopyTask.task_description.markdown)] reduce:^id (NSString *content, EABoardTaskList *task_board_list, User *owner, NSNumber *priority, NSNumber *status, NSString *deadline){
                                    @strongify(self);
                                    BOOL enabled = ![self.myCopyTask isSameToTask:self.myTask];
                                    if (self.myCopyTask.handleType > TaskHandleTypeEdit) {
@@ -106,7 +112,22 @@
     if (_myCopyTask.handleType > TaskHandleTypeEdit) {
         self.title = @"创建任务";
     }else{
-        self.title = _myTask.project.name;
+        UILabel *titleL = [UILabel labelWithFont:[UIFont systemFontOfSize:kNavTitleFontSize] textColor:kColorNavTitle];
+        titleL.text = _myTask.project.name;
+        titleL.userInteractionEnabled = YES;
+        __weak typeof(self) weakSelf = self;
+        [titleL bk_whenTapped:^{
+            NProjectViewController *vc = [[NProjectViewController alloc] init];
+            vc.myProject = weakSelf.myTask.project;
+            [weakSelf.navigationController pushViewController:vc animated:YES];
+        }];
+        [titleL sizeToFit];
+        self.navigationItem.titleView = titleL;
+        if ([[FunctionTipsManager shareManager] needToTip:kFunctionTipStr_TaskTitleViewTap]) {
+            [MartFunctionTipView showText:@"点击标题可跳转到项目首页哦" direction:AMPopTipDirectionDown  bubbleOffset:0 inView:self.view fromFrame:CGRectMake(kScreen_Width/ 2, 0, 0, 0) dismissHandler:^{
+                [[FunctionTipsManager shareManager] markTiped:kFunctionTipStr_TaskTitleViewTap];
+            }];
+        }
     }
 }
 
@@ -127,6 +148,12 @@
         [_myMsgInputView prepareToShow];
     }
     [self.myTableView reloadData];
+    
+    if (_myCopyTask.handleType == TaskHandleTypeEdit && !_myCopyTask.activityList) {
+        [self queryToRefreshTaskDetail];
+    }else{
+        [self configTitle];
+    }
 }
 
 - (void)didReceiveMemoryWarning
@@ -143,7 +170,7 @@
 - (void)messageInputView:(UIMessageInputView *)inputView heightToBottomChenged:(CGFloat)heightToBottom{
     [UIView animateWithDuration:0.25 delay:0.0f options:UIViewAnimationOptionTransitionFlipFromBottom animations:^{
         UIEdgeInsets contentInsets= UIEdgeInsetsMake(0.0, 0.0, MAX(CGRectGetHeight(inputView.frame), heightToBottom), 0.0);;
-        CGFloat msgInputY = kScreen_Height - heightToBottom - 64;
+        CGFloat msgInputY = kScreen_Height - heightToBottom - (44 + kSafeArea_Top);
 
         self.myTableView.contentInset = contentInsets;
         self.myTableView.scrollIndicatorInsets = contentInsets;
@@ -164,7 +191,7 @@
     [[Coding_NetAPIManager sharedManager] request_ActivityListOfTask:_myCopyTask andBlock:^(id data, NSError *error) {
         if (data) {
             weakSelf.myCopyTask.activityList = data;
-            [weakSelf.myTableView reloadSections:[NSIndexSet indexSetWithIndex:2] withRowAnimation:UITableViewRowAnimationAutomatic];
+            [weakSelf.myTableView reloadData];
         };
     }];
 }
@@ -182,6 +209,7 @@
             [weakSelf configTitle];
             
             [weakSelf.myTableView reloadData];
+            [weakSelf queryToRefreshResourceReference];
             [weakSelf queryToRefreshActivityList];
         }else if ([[[error.userInfo objectForKey:@"msg"] allKeys] containsObject:@"task_not_exist"]){
             [self.navigationItem setRightBarButtonItem:nil animated:YES];
@@ -189,6 +217,17 @@
     }];
 }
 
+- (void)queryToRefreshResourceReference{
+    if (_myCopyTask.handleType == TaskHandleTypeEdit) {
+        __weak typeof(self) weakSelf = self;
+        [[Coding_NetAPIManager sharedManager] request_TaskResourceReference:_myTask andBlock:^(id data, NSError *error) {
+            if (data) {
+                _myTask.resourceReference = data;
+                [weakSelf.myTableView reloadData];
+            }
+        }];
+    }
+}
 #pragma mark Mine M
 - (void)doneBtnClicked{
     if (_myCopyTask.isRequesting) {
@@ -205,7 +244,7 @@
                 if (_taskChangedBlock) {
                     _taskChangedBlock();
                 }
-                [self.navigationController popViewControllerAnimated:YES];
+                [self handleDone];
             }
         }];
     }else{
@@ -221,7 +260,7 @@
                 if (_taskChangedBlock) {
                     _taskChangedBlock();
                 }
-                [self.navigationController popViewControllerAnimated:YES];
+                [self handleDone];
             }else{
                 [NSObject showStatusBarError:error];
             }
@@ -229,6 +268,13 @@
     }
 }
 
+- (void)handleDone{
+    if (self.doneBlock) {
+        self.doneBlock(self);
+    }else{
+        [self.navigationController popViewControllerAnimated:YES];
+    }
+}
 - (void)deleteTask:(Task *)toDelete{
     if (toDelete.isRequesting) {
         return;
@@ -263,10 +309,14 @@
 }
 
 - (void)sendCurComment:(Task *)commentObj{
+    [NSObject showHUDQueryStr:@"正在发表评论..."];
     __weak typeof(self) weakSelf = self;
     [[Coding_NetAPIManager sharedManager] request_DoCommentToTask:commentObj andBlock:^(id data, NSError *error) {
+        [NSObject hideHUDQuery];
         if (data) {
+            [NSObject showHudTipStr:@"评论成功"];
             [weakSelf queryToRefreshActivityList];
+            [weakSelf queryToRefreshResourceReference];
             [weakSelf.myTableView reloadData];
         }
     }];
@@ -281,7 +331,7 @@
 }
 #pragma mark Table M
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView{
-    return (self.myCopyTask.handleType > TaskHandleTypeEdit)? 2: 3;
+    return (self.myCopyTask.handleType > TaskHandleTypeEdit)? 2: self.myTask.resourceReference.itemList.count > 0? 4: 3;
 }
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section{
     NSInteger row = 0;
@@ -289,7 +339,10 @@
         row = 2;
     }else if (section == 1){
         TaskHandleType handleType = self.myCopyTask.handleType;
-        row = handleType == TaskHandleTypeEdit? 4: handleType == TaskHandleTypeAddWithProject? 3: 4;
+        row = handleType == TaskHandleTypeEdit? 5: handleType == TaskHandleTypeAddWithProject? 4: 5;
+        row += 1;//加一个看板项
+    }else if (section == 2 && _myTask.resourceReference.itemList.count > 0){
+        row = 1;
     }else{
         row = self.myCopyTask.activityList.count;
     }
@@ -310,7 +363,7 @@
             };
             cell.deleteBtnClickedBlock = ^(Task *toDelete){
                 [weakSelf.view endEditing:YES];
-                UIActionSheet *actionSheet = [UIActionSheet bk_actionSheetCustomWithTitle:@"删除此任务" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIActionSheet *sheet, NSInteger index) {
+                UIAlertController *actionSheet = [UIAlertController ea_actionSheetCustomWithTitle:@"删除此任务" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
                     if (index == 0) {
                         [weakSelf deleteTask:toDelete];
                     }
@@ -338,7 +391,7 @@
             TaskDescriptionCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellIdentifier_TaskDescriptionCell forIndexPath:indexPath];
             NSString *titleStr;
             if (_myCopyTask.handleType > TaskHandleTypeEdit) {
-                titleStr = @"添加描述";
+                titleStr = _myCopyTask.has_description.boolValue? @"查看描述": @"添加描述";
             }else{
                 titleStr = _myCopyTask.has_description.boolValue? @"查看描述": @"补充描述";
             }
@@ -361,6 +414,12 @@
         cell.backgroundColor = kColorTableBG;
         [tableView addLineforPlainCell:cell forRowAtIndexPath:indexPath withLeftSpace:60];
         return cell;
+    }else if (indexPath.section == 2 && _myTask.resourceReference.itemList.count > 0){
+        LeftImage_LRTextCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellIdentifier_LeftImage_LRText forIndexPath:indexPath];
+        [cell setObj:_myTask type:LeftImage_LRTextCellTypeTaskResourceReference];
+        cell.backgroundColor = kColorTableBG;
+        [tableView addLineforPlainCell:cell forRowAtIndexPath:indexPath withLeftSpace:60];
+        return cell;
     }else{
         ProjectActivity *curActivity = [self.myCopyTask.activityList objectAtIndex:indexPath.row];
         if ([curActivity.target_type isEqualToString:@"TaskComment"]) {
@@ -376,7 +435,6 @@
             cell.contentLabel.delegate = self;
             [cell configTop:(indexPath.row == 0) andBottom:(indexPath.row == _myCopyTask.activityList.count - 1)];
             cell.backgroundColor = kColorTableBG;
-//            [tableView addLineforPlainCell:cell forRowAtIndexPath:indexPath withLeftSpace:60];
             return cell;
         }else{
             TaskActivityCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellIdentifier_TaskActivityCell forIndexPath:indexPath];
@@ -398,6 +456,8 @@
         }
     }else if (indexPath.section == 1){
         cellHeight = [LeftImage_LRTextCell cellHeight];
+    }else if (indexPath.section == 2 && _myTask.resourceReference.itemList.count > 0){
+        cellHeight = [LeftImage_LRTextCell cellHeight];
     }else if (self.myCopyTask.activityList.count > indexPath.row){
         ProjectActivity *curActivity = [self.myCopyTask.activityList objectAtIndex:indexPath.row];
         if ([curActivity.target_type isEqualToString:@"TaskComment"]) {
@@ -413,8 +473,6 @@
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section{
     if (section == 0) {
         return 0.5;
-    }else if (section == 3){
-        return 0.5;
     }else{
         return 20.0;
     }
@@ -427,14 +485,6 @@
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section{
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, kScreen_Width, 1)];
     headerView.backgroundColor = kColorTableSectionBg;
-    if (section == 0) {
-        [headerView setHeight:30.0];
-    }else if (section == 3){
-        headerView.backgroundColor = [UIColor whiteColor];
-        [headerView setHeight:1.0];
-    }else{
-        [headerView setHeight:20];
-    }
     return headerView;
 }
 
@@ -442,27 +492,19 @@
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     ESWeakSelf;
     if (indexPath.section == 0) {
-//        if (indexPath.row != 0) {
-//            if (self.myCopyTask.has_description.boolValue && !self.myCopyTask.task_description) {
-//                //描述内容 还没有加载成功
-//                return ;
-//            }
-//            [self goToDescriptionVC];
-//        }
     }else if (indexPath.section == 1){
         LeftImage_LRTextCellType cellType = _myCopyTask.handleType == TaskHandleTypeAddWithoutProject? indexPath.row : indexPath.row +1;
         if (cellType == LeftImage_LRTextCellTypeTaskProject) {
             ProjectToChooseListViewController *vc = [[ProjectToChooseListViewController alloc] init];
-            vc.projectChoosedBlock = ^(Project *project){
+            vc.projectChoosedBlock = ^(ProjectToChooseListViewController *blockChooseVC, Project *project){
                 ESStrongSelf;
                 _self.myCopyTask.project = project;
                 _self.myCopyTask.owner = nil;//更换新的执行人
                 [_self.myCopyTask.labels removeAllObjects];
                 [_self.myTableView reloadData];
+                [blockChooseVC.navigationController popViewControllerAnimated:YES];
             };
             [self.navigationController pushViewController:vc animated:YES];
-
-            NSLog(@"haimeizuo");
         }else if (cellType == LeftImage_LRTextCellTypeTaskOwner) {
             if (_myCopyTask.project == nil) {
                 [NSObject showHudTipStr:@"需要选定所属项目先~"];
@@ -474,6 +516,34 @@
                 _self.myCopyTask.owner = member.user;//更换新的执行人
                 [_self.myTableView reloadData];
             } cellBtnBlock:nil];
+            [self.navigationController pushViewController:vc animated:YES];
+        }else if (cellType == LeftImage_LRTextCellTypeTaskBoardList) {
+            if (_myCopyTask.project == nil) {
+                [NSObject showHudTipStr:@"需要选定所属项目先~"];
+                return;
+            }
+            RATaskBoardListListViewController *vc = [RATaskBoardListListViewController new];
+            vc.curPro = _myCopyTask.project;
+            vc.selectedBoardTL = _myCopyTask.task_board_list;
+            vc.needToShowDoneBoardTL = (_myCopyTask.handleType == TaskHandleTypeEdit);
+            vc.selectedBlock = ^(EABoardTaskList *selectedBoardTL) {
+                ESStrongSelf;
+                if (_self.myCopyTask.handleType == TaskHandleTypeEdit) {//看板只能单项修改
+                    [NSObject showStatusBarQueryStr:@"正在修改看板列表"];
+                    [[Coding_NetAPIManager sharedManager] request_PutTask:_self.myCopyTask toBoardTaskList:selectedBoardTL andBlock:^(id data, NSError *error) {
+                        if (data) {
+                            [NSObject showStatusBarSuccessStr:@"看板列表已修改"];
+                            _self.myCopyTask.task_board_list = _self.myTask.task_board_list = selectedBoardTL;
+                            [_self.myTableView reloadData];
+                        }else{
+                            [NSObject showStatusBarError:error];
+                        }
+                    }];
+                }else{
+                    _self.myCopyTask.task_board_list = selectedBoardTL;
+                    [_self.myTableView reloadData];
+                }
+            };
             [self.navigationController pushViewController:vc animated:YES];
         }else if (cellType == LeftImage_LRTextCellTypeTaskPriority){
             ValueListViewController *vc = [[ValueListViewController alloc] init];
@@ -498,7 +568,7 @@
             
             UIBarButtonItem *barButton = [[UIBarButtonItem alloc] initWithTitle:@"移除" style:UIBarButtonItemStylePlain target:nil action:nil];
             [barButton setTitleTextAttributes:@{NSFontAttributeName: [UIFont boldSystemFontOfSize:17],
-                                                NSForegroundColorAttributeName: [UIColor colorWithHexString:@"0x666666"]} forState:UIControlStateNormal];
+                                                NSForegroundColorAttributeName: kColor666} forState:UIControlStateNormal];
             [picker setCancelButton:barButton];
             [picker showActionSheetPicker];
         }else if (cellType == LeftImage_LRTextCellTypeTaskStatus){
@@ -509,7 +579,26 @@
                 [_self.myTableView reloadData];
             }];
             [self.navigationController pushViewController:vc animated:YES];
+        }else if (cellType == LeftImage_LRTextCellTypeTaskWatchers){
+            if (_myCopyTask.project == nil) {
+                [NSObject showHudTipStr:@"需要选定所属项目先~"];
+                return;
+            }
+            ProjectMemberListViewController *vc = [[ProjectMemberListViewController alloc] init];
+            [vc setFrame:self.view.bounds project:_myCopyTask.project type:ProMemTypeTaskWatchers refreshBlock:nil selectBlock:nil cellBtnBlock:^(ProjectMember *member) {
+                ESStrongSelf;
+                [_self watchersChanged:member];
+            }];
+            vc.curTask = _myCopyTask;
+            [self.navigationController pushViewController:vc animated:YES];
         }
+    }else if (indexPath.section == 2 && _myTask.resourceReference.itemList.count > 0){
+        TaskResourceReferenceViewController *vc = [TaskResourceReferenceViewController new];
+        vc.resourceReference = _myTask.resourceReference;
+        vc.resourceReferencePath = [self.myTask backend_project_path];
+        vc.number = self.myTask.number;
+        vc.resourceReferenceFromType = @1;
+        [self.navigationController pushViewController:vc animated:YES];
     }else {
         ProjectActivity *curActivity = [self.myCopyTask.activityList objectAtIndex:indexPath.row];
         if ([curActivity.target_type isEqualToString:@"TaskComment"]) {
@@ -518,6 +607,8 @@
         }
     }
 }
+
+#pragma mark - 
 
 - (void)goToDescriptionVC{
     if (!_myCopyTask.task_description) {
@@ -535,6 +626,7 @@
             _self.taskChangedBlock();
         }
         [_self.myTableView reloadData];
+        [_self queryToRefreshResourceReference];
     };
     [self.navigationController pushViewController:vc animated:YES];
 }
@@ -548,7 +640,7 @@
     vc.curProject = self.myCopyTask.project;
     vc.orignalTags = self.myCopyTask.labels;
     @weakify(self);
-    vc.tagsChangedBlock = ^(EditLabelViewController *vc, NSMutableArray *selectedTags){
+    vc.tagsSelectedBlock = ^(EditLabelViewController *vc, NSMutableArray *selectedTags){
         @strongify(self);
         [self tagsHasChanged:selectedTags fromVC:vc];
     };
@@ -556,31 +648,24 @@
 }
 
 - (void)tagsHasChanged:(NSMutableArray *)selectedTags fromVC:(EditLabelViewController *)vc{
-    if ([ProjectTag tags:self.myCopyTask.labels isEqualTo:selectedTags]) {
-        [vc.navigationController popViewControllerAnimated:YES];
+    if ([ProjectTag tags:self.myCopyTask.labels isEqualTo:selectedTags] || self.myCopyTask.handleType > TaskHandleTypeEdit) {
+        self.myTask.labels = [selectedTags mutableCopy];
+        self.myCopyTask.labels = [selectedTags mutableCopy];
+        [self.myTableView reloadData];
     }else{
-        if (self.myCopyTask.handleType > TaskHandleTypeEdit) {
-            self.myCopyTask.labels = selectedTags;
-            self.myTask.labels = [self.myCopyTask.labels mutableCopy];
-            [self.myTableView reloadData];
-            [vc.navigationController popViewControllerAnimated:YES];
-        }else{
-            vc.navigationItem.rightBarButtonItem.enabled = NO;
-            @weakify(self);
-            [[Coding_NetAPIManager sharedManager] request_EditTask:_myCopyTask withTags:selectedTags andBlock:^(id data, NSError *error) {
-                @strongify(self);
-                vc.navigationItem.rightBarButtonItem.enabled = YES;
-                if (data) {
-                    self.myCopyTask.labels = selectedTags;
-                    self.myTask.labels = [self.myCopyTask.labels mutableCopy];
-                    [self.myTableView reloadData];
-                    if (self.taskChangedBlock) {
-                        self.taskChangedBlock();
-                    }
-                    [vc.navigationController popViewControllerAnimated:YES];
+        @weakify(self);
+        [[Coding_NetAPIManager sharedManager] request_EditTask:_myCopyTask withTags:selectedTags andBlock:^(id data, NSError *error) {
+            @strongify(self);
+            if (data) {
+                self.myCopyTask.labels = [selectedTags mutableCopy];
+                self.myTask.labels = [selectedTags mutableCopy];
+                [self.myTableView reloadData];
+                if (self.taskChangedBlock) {
+                    self.taskChangedBlock();
                 }
-            }];
-        }
+            }
+        }];
+
     }
 }
 
@@ -596,7 +681,7 @@
     if (_toComment) {
         if ([Login isLoginUserGlobalKey:_toComment.owner.global_key]) {
             __weak typeof(self) weakSelf = self;
-            UIActionSheet *actionSheet = [UIActionSheet bk_actionSheetCustomWithTitle:@"删除此评论" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIActionSheet *sheet, NSInteger index) {
+            UIAlertController *actionSheet = [UIAlertController ea_actionSheetCustomWithTitle:@"删除此评论" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
                 if (index == 0) {
                     [weakSelf deleteComment:weakSelf.toComment];
                 }
@@ -606,6 +691,11 @@
         }
     }
     [_myMsgInputView notAndBecomeFirstResponder];
+}
+
+- (void)watchersChanged:(ProjectMember *)member{
+    _myTask.watchers = _myCopyTask.watchers.mutableCopy;
+    [_myTableView reloadData];
 }
 
 #pragma mark ScrollView Delegate

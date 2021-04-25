@@ -12,13 +12,29 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view.
-    self.title = _curUser.name;
+    self.title = _isFromMeRoot? @"我的项目": _curUser.name;
     self.icarouselScrollEnabled = YES;
 }
 
 - (void)setupNavBtn{
     self.navigationItem.leftBarButtonItem = nil;
     self.navigationItem.rightBarButtonItem = nil;
+    
+    self.useNewStyle = NO;
+    if (!_isFromMeRoot) {
+        [self.myCarousel mas_updateConstraints:^(MASConstraintMaker *make) {
+            make.edges.equalTo(self.view).insets(UIEdgeInsetsMake(kMySegmentControl_Height, 0, 0, 0));
+        }];
+        //    添加滑块
+        __weak typeof(self.myCarousel) weakCarousel = self.myCarousel;
+        self.mySegmentControl = [[XTSegmentControl alloc] initWithFrame:CGRectMake(0, 0, kScreen_Width, kMySegmentControl_Height) Items:self.segmentItems selectedBlock:^(NSInteger index) {
+            if (index == self.oldSelectedIndex) {
+                return;
+            }
+            [weakCarousel scrollToItemAtIndex:index animated:NO];
+        }];
+        [self.view addSubview:self.mySegmentControl];
+    }
 }
 
 - (void)configSegmentItems{
@@ -30,7 +46,7 @@
 }
 
 - (Projects *)projectsWithIndex:(NSUInteger)index{
-    return [Projects projectsWithType:(index +ProjectsTypeTaProject) andUser:self.curUser];
+    return [Projects projectsWithType:_isFromMeRoot? _isForPrivateProjects? ProjectsTypeCreatedPrivate: ProjectsTypeCreatedPublic:(index + ProjectsTypeTaProject) andUser:self.curUser];
 }
 
 @end

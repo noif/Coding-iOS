@@ -6,7 +6,9 @@
 //  Copyright (c) 2015年 Coding. All rights reserved.
 //
 
-#define kTaskActivityCell_LeftContentPading (kPaddingLeftWidth + 40)
+#define kTaskActivityCell_BorderWidth 2.0
+#define kTaskActivityCell_IconWidth 33.0
+#define kTaskActivityCell_LeftContentPading (kPaddingLeftWidth + kTaskActivityCell_IconWidth + 15)
 #define kTaskActivityCell_ContentWidth (kScreen_Width - kTaskActivityCell_LeftContentPading - kPaddingLeftWidth)
 
 #import "TaskActivityCell.h"
@@ -31,8 +33,8 @@
             [self.contentView addSubview:_timeLineView];
         }
         if (!_tipIconView) {
-            CGFloat borderWidth = 2;
-            _tipIconView = [[UIImageView alloc] initWithFrame:CGRectMake(kPaddingLeftWidth - borderWidth, 10, 28 + 2*borderWidth, 28 + 2*borderWidth)];
+            CGFloat borderWidth = kTaskActivityCell_BorderWidth;
+            _tipIconView = [[UIImageView alloc] initWithFrame:CGRectMake(kPaddingLeftWidth - borderWidth, 6, kTaskActivityCell_IconWidth + 2*borderWidth, kTaskActivityCell_IconWidth + 2*borderWidth)];
             _tipIconView.contentMode = UIViewContentModeCenter;
             
             _tipIconView.layer.masksToBounds = YES;
@@ -41,11 +43,21 @@
             _tipIconView.layer.borderColor = kColorTableBG.CGColor;
             
             [self.contentView addSubview:_tipIconView];
+            [_tipIconView mas_makeConstraints:^(MASConstraintMaker *make) {
+                make.size.mas_equalTo(CGSizeMake(kTaskActivityCell_IconWidth + 2*borderWidth, kTaskActivityCell_IconWidth + 2*borderWidth));
+                make.left.equalTo(self.contentView).offset(kPaddingLeftWidth - borderWidth);
+                make.centerY.equalTo(self.contentView);
+            }];
         }
         if (!_contentLabel) {
             _contentLabel = [[UITTTAttributedLabel alloc] initWithFrame:CGRectMake(kTaskActivityCell_LeftContentPading, 13, kTaskActivityCell_ContentWidth, 15)];
             _contentLabel.numberOfLines = 0;
             [self.contentView addSubview:_contentLabel];
+            [_contentLabel mas_makeConstraints:^(MASConstraintMaker *make) {
+                make.left.equalTo(self.contentView).offset(kTaskActivityCell_LeftContentPading);
+                make.centerY.equalTo(self.contentView);
+                make.width.mas_equalTo(kTaskActivityCell_ContentWidth);
+            }];
         }
     }
     return self;
@@ -62,11 +74,13 @@
         tipIconImageName = [NSString stringWithFormat:@"task_activity_icon_%@", _curActivity.action];
     }else if ([curActivity.target_type isEqualToString:@"ProjectFile"]){
         tipIconImageName = [NSString stringWithFormat:@"file_activity_icon_%@", _curActivity.action];
+    }else if ([curActivity.target_type isEqualToString:@"MergeRequestBean"]){
+        tipIconImageName = [NSString stringWithFormat:@"task_activity_icon_%@", _curActivity.target_type];
     }
     _tipIconView.image = [UIImage imageNamed:tipIconImageName];
     NSAttributedString *attrContent = [[self class] attrContentWithObj:_curActivity];
-    CGFloat contentHeight = [attrContent boundingRectWithSize:CGSizeMake(kTaskActivityCell_ContentWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin context:nil].size.height;
-    [self.contentLabel setHeight:contentHeight];
+//    CGFloat contentHeight = [attrContent boundingRectWithSize:CGSizeMake(kTaskActivityCell_ContentWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin context:nil].size.height;
+//    [self.contentLabel setHeight:contentHeight];
     self.contentLabel.attributedText = attrContent;
 }
 
@@ -85,46 +99,56 @@
 }
 
 + (NSAttributedString *)attrContentWithObj:(ProjectActivity *)curActivity{
-    if (![curActivity.target_type isEqualToString:@"Task"]) {
-        return nil;
-    }
-
     NSString *userName, *contentStr;
     userName = curActivity.user.name? curActivity.user.name: @"";
     NSMutableAttributedString *attrContent;
     
-    if ([curActivity.action isEqualToString:@"create"]) {
-        contentStr = [NSString stringWithFormat:@"创建了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
-    }else if ([curActivity.action isEqualToString:@"update"]) {
-        contentStr = [NSString stringWithFormat:@"更新了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
-    }else if ([curActivity.action isEqualToString:@"update_priority"]) {
-        contentStr = [NSString stringWithFormat:@"更新了任务优先级为 「%@」 - %@", kTaskPrioritiesDisplay[curActivity.task.priority.intValue], [curActivity.created_at stringDisplay_HHmm]];
-    }else if ([curActivity.action isEqualToString:@"update_deadline"]) {
-        if (curActivity.task.deadline_date) {
-            contentStr = [NSString stringWithFormat:@"更新了任务截止日期为 「%@」 - %@", [NSDate convertStr_yyyy_MM_ddToDisplay:curActivity.task.deadline], [curActivity.created_at stringDisplay_HHmm]];
-        }else{
-            contentStr = [NSString stringWithFormat:@"移除了任务的截止日期 - %@", [curActivity.created_at stringDisplay_HHmm]];
+    if ([curActivity.target_type isEqualToString:@"Task"]) {
+        if ([curActivity.action isEqualToString:@"create"]) {
+            contentStr = [NSString stringWithFormat:@"创建了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"update"]) {
+            contentStr = [NSString stringWithFormat:@"更新了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"update_priority"]) {
+            contentStr = [NSString stringWithFormat:@"更新了任务优先级为 「%@」 - %@", kTaskPrioritiesDisplay[curActivity.task.priority.intValue], [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"update_deadline"]) {
+            if (curActivity.task.deadline_date) {
+                contentStr = [NSString stringWithFormat:@"更新了任务截止日期为 「%@」 - %@", [NSDate convertStr_yyyy_MM_ddToDisplay:curActivity.task.deadline], [curActivity.created_at stringDisplay_HHmm]];
+            }else{
+                contentStr = [NSString stringWithFormat:@"移除了任务的截止日期 - %@", [curActivity.created_at stringDisplay_HHmm]];
+            }
+        }else if ([curActivity.action isEqualToString:@"update_description"]) {
+            contentStr = [NSString stringWithFormat:@"更新了任务描述 - %@", [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"update_label"]) {
+            if (curActivity.labels.count > 0) {
+                contentStr = [NSString stringWithFormat:@"更新了任务标签为 「%@」 - %@", [[curActivity.labels valueForKey:@"name"] componentsJoinedByString:@","], [curActivity.created_at stringDisplay_HHmm]];
+            }else{
+                contentStr = [NSString stringWithFormat:@"移除了任务的所有标签 - %@", [curActivity.created_at stringDisplay_HHmm]];
+            }
+        }else if ([curActivity.action isEqualToString:@"reassign"]) {
+            contentStr = [NSString stringWithFormat:@"重新指派了任务给了 「%@」 - %@", curActivity.task.owner.name, [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"finish"]) {
+            contentStr = [NSString stringWithFormat:@"完成了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"restore"]) {
+            contentStr = [NSString stringWithFormat:@"重新开启了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"commit_refer"]) {
+            contentStr = [NSString stringWithFormat:@"在分支 %@ 中提交的代码提到了任务「%@」 - %@", curActivity.commit.ref, curActivity.commit.contentStr, [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"add_watcher"]){
+            contentStr = [NSString stringWithFormat:@"%@「%@」 - %@", curActivity.action_msg, curActivity.watcher.name, [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"remove_watcher"]){
+            contentStr = [NSString stringWithFormat:@"%@「%@」 - %@", curActivity.action_msg, curActivity.watcher.name, [curActivity.created_at stringDisplay_HHmm]];
+        }else if ([curActivity.action isEqualToString:@"add_milestone"] || [curActivity.action isEqualToString:@"remove_milestone"]){
+            contentStr = [NSString stringWithFormat:@"%@「%@」 - %@", curActivity.action_msg, curActivity.milestone.name, [curActivity.created_at stringDisplay_HHmm]];
         }
-    }else if ([curActivity.action isEqualToString:@"update_description"]) {
-        contentStr = [NSString stringWithFormat:@"更新了任务描述 - %@", [curActivity.created_at stringDisplay_HHmm]];
-    }else if ([curActivity.action isEqualToString:@"reassign"]) {
-        contentStr = [NSString stringWithFormat:@"重新指派了任务给了 「%@」 - %@", curActivity.task.owner.name, [curActivity.created_at stringDisplay_HHmm]];
-    }else if ([curActivity.action isEqualToString:@"finish"]) {
-        contentStr = [NSString stringWithFormat:@"完成了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
-    }else if ([curActivity.action isEqualToString:@"restore"]) {
-        contentStr = [NSString stringWithFormat:@"重新开启了任务 - %@", [curActivity.created_at stringDisplay_HHmm]];
-    }else if ([curActivity.action isEqualToString:@"commit_refer"]) {
-        contentStr = [NSString stringWithFormat:@"在分支 %@ 中提交的代码提到了任务 - %@\n%@", curActivity.commit.ref, [curActivity.created_at stringDisplay_HHmm], curActivity.commit.contentStr];
-    }else{
-        contentStr = @"...";
+    }else if ([curActivity.target_type isEqualToString:@"MergeRequestBean"]){
+        contentStr = [NSString stringWithFormat:@"%@ 合并请求「%@」 - %@", curActivity.action_msg, curActivity.merge_request_title, [curActivity.created_at stringDisplay_HHmm]];
     }
-    
+    contentStr = contentStr? contentStr: @"...";
     attrContent = [[NSMutableAttributedString alloc] initWithString:[NSString stringWithFormat:@"%@ %@", userName, contentStr]];
     [attrContent addAttributes:@{NSFontAttributeName : [UIFont boldSystemFontOfSize:13],
-                                NSForegroundColorAttributeName : [UIColor colorWithHexString:@"0x222222"]}
+                                NSForegroundColorAttributeName : kColorDark3}
                         range:NSMakeRange(0, userName.length)];
     [attrContent addAttributes:@{NSFontAttributeName : [UIFont systemFontOfSize:13],
-                                NSForegroundColorAttributeName : [UIColor colorWithHexString:@"0x999999"]}
+                                NSForegroundColorAttributeName : kColorDark7}
                         range:NSMakeRange(userName.length + 1, contentStr.length)];
     
     NSMutableParagraphStyle *paragraphStyle = [NSMutableParagraphStyle new];
@@ -142,8 +166,9 @@
     if ([obj isKindOfClass:[ProjectActivity class]]) {
         NSAttributedString *attrContent = [self  attrContentWithObj:obj];
         CGFloat contentHeight = [attrContent boundingRectWithSize:CGSizeMake(kTaskActivityCell_ContentWidth, CGFLOAT_MAX) options:NSStringDrawingUsesLineFragmentOrigin context:nil].size.height;
-        cellHeight = ceilf(contentHeight + 26);
-        cellHeight = MAX(44, cellHeight);
+        contentHeight = MAX(contentHeight, kTaskActivityCell_IconWidth);
+        
+        cellHeight = contentHeight + 16;
     }
     return cellHeight;
 }

@@ -26,6 +26,7 @@
 +(void)showSettingFolderNameVCFromVC:(UIViewController *)preVc withTitle:(NSString *)title textValue:(NSString *)textValue type:(SettingType)type doneBlock:(void(^)(NSString *textValue))block{
     SettingTextViewController *vc = [self settingTextVCWithTitle:title textValue:textValue doneBlock:block];
     vc.settingType = type;
+    vc.placeholderStr = @"文件夹名称";
     if (preVc) {
         UINavigationController *nav = [[BaseNavigationController alloc] initWithRootViewController:vc];
         [preVc presentViewController:nav animated:YES completion:nil];
@@ -65,6 +66,9 @@
         [tableView mas_makeConstraints:^(MASConstraintMaker *make) {
             make.edges.equalTo(self.view);
         }];
+        tableView.estimatedRowHeight = 0;
+        tableView.estimatedSectionHeaderHeight = 0;
+        tableView.estimatedSectionFooterHeight = 0;
         tableView;
     });
     if (self.settingType != SettingTypeOnlyText) {
@@ -82,12 +86,12 @@
     if (self.doneBlock) {
         self.doneBlock(_myTextValue);
     }
-    if (self.settingType == SettingTypeOnlyText) {
-        [self.navigationController popViewControllerAnimated:YES];
-    }else{
+    if (self.navigationController.viewControllers.count <= 1) {
         [self.view endEditing:YES];
         [self dismissViewControllerAnimated:YES completion:^{
         }];
+    }else{
+        [self.navigationController popViewControllerAnimated:YES];
     }
 }
 - (void)dismissSelf{
@@ -105,11 +109,7 @@
     [cell setTextValue:_textValue andTextChangeBlock:^(NSString *textValue) {
         weakSelf.myTextValue = textValue;
     }];
-    if (self.settingType == SettingTypeNewFolderName) {
-        cell.textField.placeholder = @"文件夹名称";
-    }else{
-        cell.textField.placeholder = @"未填写";
-    }
+    cell.textField.placeholder = self.placeholderStr ?: @"未填写";
     return cell;
 }
 

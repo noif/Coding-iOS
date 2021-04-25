@@ -10,6 +10,17 @@
 
 @implementation MRPR
 
+- (instancetype)init
+{
+    self = [super init];
+    if (self) {
+        _propertyArrayMap = [NSDictionary dictionaryWithObjectsAndKeys:
+                             @"NSString", @"body", nil];
+    }
+    return self;
+}
+
+
 + (MRPR *)mrprWithPath:(NSString *)path{
     MRPR *mrpr = [MRPR new];
     mrpr.path = path;
@@ -22,6 +33,9 @@
     if (pathComponents.count == 8) {
         _des_owner_name = pathComponents[2];
         _des_project_name = pathComponents[4];
+    }else if (pathComponents.count == 6){
+        _des_owner_name = [NSObject baseCompany];
+        _des_project_name = pathComponents[2];
     }
 }
 
@@ -59,6 +73,14 @@
     return [[self p_prePath] stringByAppendingString:@"base"];
 }
 
+- (NSString *)toPrePath{
+    return [self p_prePath];
+}
+
+- (NSString *)toReviewersPath {
+     return [[self p_prePath] stringByAppendingString:@"reviewers"];
+}
+
 - (NSString *)toCommitsPath{
     return [[self p_prePath] stringByAppendingString:@"commits"];
 }
@@ -85,6 +107,14 @@
     return [[self p_prePath] stringByAppendingString:@"cancel"];
 }
 
+- (NSString *)toCancelMRPath{
+    return [[self path] stringByAppendingString:@"cancel"];
+}
+
+- (NSString *)toAuthorizationPath{
+    return [[self p_prePath] stringByAppendingString:@"grant"];
+}
+
 - (NSString *)toFileChangesPath{
     return [[self p_prePath] stringByAppendingString:@"commitDiffStat"];
 }
@@ -94,7 +124,10 @@
     NSArray *pathComponents = [_path componentsSeparatedByString:@"/"];
     if (pathComponents.count == 8) {
         prePath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/%@/%@/", pathComponents[2], pathComponents[4], pathComponents[6], pathComponents[7]];
+    }else if (pathComponents.count == 6){
+        prePath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/%@/%@/", [NSObject baseCompany], pathComponents[2], pathComponents[4], pathComponents[5]];
     }
+    NSLog(@"path === %@", prePath);
     return prePath;
 }
 

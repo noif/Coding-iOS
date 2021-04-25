@@ -14,14 +14,15 @@
 #import "Coding_NetAPIManager.h"
 #import "ProjectTag.h"
 #import "MBProgressHUD+Add.h"
+#import "EditColorViewController.h"
 
 #define kCellIdentifier_EditLabelHeadCell @"EditLabelHeadCell"
 #define kCellIdentifier_EditLabelCell @"EditLabelCell"
 
 @interface EditLabelViewController () <UITableViewDataSource, UITableViewDelegate, SWTableViewCellDelegate, UITextFieldDelegate>
-@property (strong, nonatomic) NSString *tagNameToAdd;
 @property (strong, nonatomic) NSMutableArray *tagList, *selectedTags;
 @property (strong, nonatomic) TPKeyboardAvoidingTableView *myTableView;
+@property (strong, nonatomic) ProjectTag *tagToAdd;
 @end
 
 @implementation EditLabelViewController
@@ -48,7 +49,8 @@
     [super viewDidLoad];
     // Do any additional setup after loading the view.
     self.title = @"标签管理";
-    
+    self.tagToAdd = [ProjectTag new];
+
     self.navigationItem.rightBarButtonItem = [UIBarButtonItem itemWithBtnTitle:@"保存" target:self action:@selector(okBtnClick)];
     self.navigationItem.rightBarButtonItem.enabled = FALSE;
     
@@ -65,14 +67,33 @@
         [tableView mas_makeConstraints:^(MASConstraintMaker *make) {
             make.edges.equalTo(self.view);
         }];
+        tableView.estimatedRowHeight = 0;
+        tableView.estimatedSectionHeaderHeight = 0;
+        tableView.estimatedSectionFooterHeight = 0;
         tableView;
     });
+    [self sendRequest];
 }
 
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
-    [self sendRequest];
+    [self.myTableView reloadData];
+}
+
+- (void)viewWillDisappear:(BOOL)animated{
+    [super viewWillDisappear:YES];
+    if (_tagList.count > 0 && _selectedTags.count > 0) {
+        for (ProjectTag *tag in _tagList) {
+            ProjectTag *orignalTag = [ProjectTag tags:_selectedTags hasTag:tag];
+            if (orignalTag) {
+                [_selectedTags replaceObjectAtIndex:[_selectedTags indexOfObject:orignalTag] withObject:tag];
+            }
+        }
+    }
+    if (_tagsSelectedBlock) {
+        _tagsSelectedBlock(self, _selectedTags);
+    }
 }
 
 - (void)sendRequest
@@ -85,35 +106,37 @@
             weakSelf.tagList = data;
             [weakSelf.myTableView reloadData];
         }
-    }];
-}
+    }];}
 
 #pragma mark - click
-- (void)okBtnClick
-{
-    if (self.tagsChangedBlock) {
-        self.tagsChangedBlock(self, _selectedTags);
-    }
+- (void)okBtnClick{
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
 - (void)addBtnClick:(UIButton *)sender
 {
     [self.view endEditing:YES];
-    if (_tagNameToAdd.length > 0) {
+    if (_tagToAdd.name.length > 0) {
         __weak typeof(self) weakSelf = self;
-        ProjectTag *curTag = [ProjectTag tagWithName:_tagNameToAdd];
-        [[Coding_NetAPIManager sharedManager] request_AddTag:curTag toProject:_curProject andBlock:^(id data, NSError *error) {
+        [[Coding_NetAPIManager sharedManager] request_AddTag:_tagToAdd toProject:_curProject andBlock:^(id data, NSError *error) {
             if (data) {
-                curTag.id = data;
-                [weakSelf.tagList addObject:curTag];
-                weakSelf.tagNameToAdd = @"";
+                weakSelf.tagToAdd.id = data;
+                [weakSelf.tagList addObject:weakSelf.tagToAdd];
+                [weakSelf.selectedTags addObject:weakSelf.tagToAdd];
+                weakSelf.navigationItem.rightBarButtonItem.enabled = YES;
+
+                weakSelf.tagToAdd = [ProjectTag new];
                 [weakSelf.myTableView reloadData];
                 sender.enabled = FALSE;
-
                 [NSObject showHudTipStr:@"添加标签成功^^"];
             }
         }];
     }
+}
+- (void)colorBtnClick:(UIButton *)sender{
+    EditColorViewController *vc = [EditColorViewController new];
+    vc.curTag = _tagToAdd;
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 #pragma mark - UITableViewDataSource
@@ -136,7 +159,9 @@
     if (indexPath.section == 0) {
         EditLabelHeadCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellIdentifier_EditLabelHeadCell forIndexPath:indexPath];
         [cell.addBtn addTarget:self action:@selector(addBtnClick:) forControlEvents:UIControlEventTouchUpInside];
-        cell.labelField.text = self.tagNameToAdd;
+        [cell.colorBtn addTarget:self action:@selector(colorBtnClick:) forControlEvents:UIControlEventTouchUpInside];
+        cell.colorBtn.backgroundColor = [UIColor colorWithHexString:[_tagToAdd.color stringByReplacingOccurrencesOfString:@"#" withString:@"0x"]];
+        cell.labelField.text = _tagToAdd.name;
         cell.labelField.delegate = self;
         [cell.labelField addTarget:self action:@selector(textFieldDidChange:) forControlEvents:UIControlEventEditingChanged];
         [tableView addLineforPlainCell:cell forRowAtIndexPath:indexPath withLeftSpace:kPaddingLeftWidth];
@@ -198,8 +223,8 @@
 - (NSArray *)rightButtons
 {
     NSMutableArray *rightUtilityButtons = [NSMutableArray new];
-    [rightUtilityButtons sw_addUtilityButtonWithColor:[UIColor colorWithHexString:@"0xe6e6e6"] icon:[UIImage imageNamed:@"icon_file_cell_rename"]];
-    [rightUtilityButtons sw_addUtilityButtonWithColor:[UIColor colorWithHexString:@"0xff5846"] icon:[UIImage imageNamed:@"icon_file_cell_delete"]];
+    [rightUtilityButtons sw_addUtilityButtonWithColor:[UIColor colorWithHexString:@"0xF2F4F6"] icon:[UIImage imageNamed:@"icon_file_cell_rename"]];
+    [rightUtilityButtons sw_addUtilityButtonWithColor:[UIColor colorWithHexString:@"0xF66262"] icon:[UIImage imageNamed:@"icon_file_cell_delete"]];
     return rightUtilityButtons;
 }
 
@@ -226,7 +251,7 @@
         __weak typeof(self) weakSelf = self;
         ProjectTag *ptLabel = [_tagList objectAtIndex:indexPath.row];
         NSString *tip = [NSString stringWithFormat:@"确定要删除标签:%@？", ptLabel.name];
-        UIActionSheet *actionSheet = [UIActionSheet bk_actionSheetCustomWithTitle:tip buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIActionSheet *sheet, NSInteger index) {
+        UIAlertController *actionSheet = [UIAlertController ea_actionSheetCustomWithTitle:tip buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
             if (index == 0) {
                 [weakSelf deleteBtnClick:indexPath.row];
             }
@@ -271,17 +296,16 @@
 
 - (void)textFieldDidChange:(UITextField *)textField
 {
-    _tagNameToAdd = [textField.text trimWhitespace];
-    BOOL enabled = _tagNameToAdd.length > 0 ? TRUE : FALSE;
+    _tagToAdd.name = [textField.text trimWhitespace];
+    BOOL enabled = _tagToAdd.name.length > 0 ? TRUE : FALSE;
     if (enabled) {
         for (ProjectTag *lbl in _tagList) {
-            if ([lbl.name isEqualToString:_tagNameToAdd]) {
+            if ([lbl.name isEqualToString:_tagToAdd.name]) {
                 enabled = FALSE;
                 break;
             }
         }
     }
-    
     NSIndexPath *indexPath = [NSIndexPath indexPathForRow:0 inSection:0];
     EditLabelHeadCell *cell = (EditLabelHeadCell *)[_myTableView cellForRowAtIndexPath:indexPath];
     cell.addBtn.enabled = enabled;

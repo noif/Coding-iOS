@@ -39,7 +39,7 @@
 #import "KxMenu.h"
 #import <QuartzCore/QuartzCore.h>
 
-const CGFloat kArrowSize = 10.f;
+const CGFloat kArrowSize = 5.f;
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -326,8 +326,12 @@ typedef enum {
     [self addSubview:_contentView];
     
     [self setupFrameInView:view fromRect:rect];
-        
-    KxMenuOverlay *overlay = [[KxMenuOverlay alloc] initWithFrame:view.bounds];
+    
+    CGRect overlayFrame = view.bounds;
+    overlayFrame.origin.y = [KxMenu yOffset];
+    overlayFrame.size.height -= [KxMenu yOffset];
+    KxMenuOverlay *overlay = [[KxMenuOverlay alloc] initWithFrame:overlayFrame];
+
     [overlay addSubview:self];
     [view addSubview:overlay];
     
@@ -371,6 +375,7 @@ typedef enum {
                                  if ([self.superview isKindOfClass:[KxMenuOverlay class]])
                                      [self.superview removeFromSuperview];
                                  [self removeFromSuperview];
+                                 [KxMenu setYOffset:0];//yOffset 每次视图消失后，需要还原为 0
                              }];
             
         } else {
@@ -378,6 +383,7 @@ typedef enum {
             if ([self.superview isKindOfClass:[KxMenuOverlay class]])
                 [self.superview removeFromSuperview];
             [self removeFromSuperview];
+            [KxMenu setYOffset:0];//yOffset 每次视图消失后，需要还原为 0
         }
     }
 }
@@ -400,8 +406,8 @@ typedef enum {
     if (!_menuItems.count)
         return nil;
  
-    const CGFloat kMinMenuItemHeight = 44.f;
-    const CGFloat kMinMenuItemWidth = 44.f;
+    const CGFloat kMinMenuItemHeight = 50.f;
+    const CGFloat kMinMenuItemWidth = 50.f;
     const CGFloat kMarginX = 6.f;
     const CGFloat kMarginY = 0.f;
     
@@ -410,7 +416,11 @@ typedef enum {
     
     CGFloat maxImageWidth = 0;    
     CGFloat maxItemHeight = 0;
-    CGFloat maxItemWidth = 0;
+    CGFloat maxItemWidth = 160;
+    
+    //默认最大宽度
+//    CGFloat maxItemWidth = 0;
+
     CGFloat titleImagePadding = 10.f;
     
     for (KxMenuItem *menuItem in _menuItems) {
@@ -440,14 +450,16 @@ typedef enum {
     }
        
     maxItemWidth  = MAX(maxItemWidth, kMinMenuItemWidth);
+    maxItemWidth = MAX(maxItemWidth, maxItemWidth * (kScreen_Width/ 375));
     maxItemHeight = MAX(maxItemHeight, kMinMenuItemHeight);
 
     const CGFloat titleX = kMarginX * 2 + maxImageWidth + titleImagePadding;
     const CGFloat titleWidth = maxItemWidth - titleX - kMarginX * 2;
     
-    UIImage *selectedImage = [KxMenuView selectedImage:(CGSize){maxItemWidth, maxItemHeight + 2}];
-    UIImage *gradientLine = [KxMenuView gradientLine: (CGSize){maxItemWidth - kMarginX * 4, 0.5}];
-    
+//    UIImage *selectedImage = [KxMenuView selectedImage:(CGSize){maxItemWidth, maxItemHeight + 2}];
+//    UIImage *gradientLine = [KxMenuView gradientLine: (CGSize){maxItemWidth - kMarginX * 4, 0.5}];
+//    UIImage *gradientLine = [KxMenuView gradientLine: (CGSize){maxItemWidth, 0.3}];
+
     UIView *contentView = [[UIView alloc] initWithFrame:CGRectZero];
     contentView.autoresizingMask = UIViewAutoresizingNone;
     contentView.backgroundColor = [UIColor clearColor];
@@ -481,7 +493,7 @@ typedef enum {
                        action:@selector(performAction:)
              forControlEvents:UIControlEventTouchUpInside];
             
-            [button setBackgroundImage:selectedImage forState:UIControlStateHighlighted];
+//            [button setBackgroundImage:selectedImage forState:UIControlStateHighlighted];
             
             [itemView addSubview:button];
         }
@@ -532,15 +544,10 @@ typedef enum {
         }
         
         if (itemNum < _menuItems.count - 1) {
-            
-            UIImageView *gradientView = [[UIImageView alloc] initWithImage:gradientLine];
-            gradientView.frame = (CGRect){kMarginX * 2, maxItemHeight + 1, gradientLine.size};
-            gradientView.contentMode = UIViewContentModeLeft;
-            [itemView addSubview:gradientView];
-            
+            [itemView addLineUp:NO andDown:YES andColor:[KxMenu lineColor]];
+            itemView.clipsToBounds = YES;
             itemY += 2;
         }
-        
         itemY += maxItemHeight;
         ++itemNum;
     }    
@@ -665,13 +672,13 @@ typedef enum {
     UIBezierPath *arrowPath = [UIBezierPath bezierPath];
     
     // fix the issue with gap of arrow's base if on the edge
-    const CGFloat kEmbedFix = 3.f;
-    
+    const CGFloat kEmbedFix = 0.f;
+
     if (_arrowDirection == KxMenuViewArrowDirectionUp) {
         
         const CGFloat arrowXM = _arrowPosition;
-        const CGFloat arrowX0 = arrowXM - kArrowSize;
-        const CGFloat arrowX1 = arrowXM + kArrowSize;
+        const CGFloat arrowX0 = arrowXM - kArrowSize - 1;
+        const CGFloat arrowX1 = arrowXM + kArrowSize + 1;
         const CGFloat arrowY0 = Y0;
         const CGFloat arrowY1 = Y0 + kArrowSize + kEmbedFix;
         
@@ -743,7 +750,7 @@ typedef enum {
     const CGRect bodyFrame = {X0, Y0, X1 - X0, Y1 - Y0};
     
     UIBezierPath *borderPath = [UIBezierPath bezierPathWithRoundedRect:bodyFrame
-                                                          cornerRadius:2];
+                                                          cornerRadius:4];
         
     const CGFloat locations[] = {0, 1};
     const CGFloat components[] = {
@@ -777,7 +784,8 @@ typedef enum {
     
     CGContextDrawLinearGradient(context, gradient, start, end, 0);
     
-    CGGradientRelease(gradient);    
+    CGGradientRelease(gradient);
+    self.alpha = 0.96;
 }
 
 @end
@@ -788,6 +796,7 @@ typedef enum {
 static KxMenu *gMenu;
 static UIColor *gTintColor, *gLineColor, *gOverlayColor;
 static UIFont *gTitleFont;
+static CGFloat gYOffset = 0.0;
 
 @implementation KxMenu {
     
@@ -857,7 +866,10 @@ static UIFont *gTitleFont;
         [_menuView dismissMenu:animated];
         _menuView = nil;
     }
-    
+    if (_dismissBlock) {
+        _dismissBlock(self);
+    }
+
     if (_observing) {
         
         _observing = NO;
@@ -919,7 +931,8 @@ static UIFont *gTitleFont;
 + (UIColor *) overlayColor
 {
     if (!gOverlayColor) {
-        gOverlayColor = [UIColor colorWithWhite:0 alpha:0.5];
+        gOverlayColor = [UIColor colorWithHexString:@"272C33" andAlpha:.5];
+//        [UIColor colorWithWhite:0 alpha:0.5];
     }
     return gOverlayColor;
 }
@@ -940,6 +953,15 @@ static UIFont *gTitleFont;
 {
     if (titleFont != gTitleFont) {
         gTitleFont = titleFont;
+    }
+}
+
++ (CGFloat) yOffset{
+    return gYOffset;
+}
++ (void) setYOffset:(CGFloat) yOffset{
+    if (yOffset != gYOffset){
+        gYOffset = yOffset;
     }
 }
 

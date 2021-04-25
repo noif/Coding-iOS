@@ -12,6 +12,17 @@
 #import <NYXImagesKit/NYXImagesKit.h>
 #import <MMMarkdown/MMMarkdown.h>
 #import "MBProgressHUD+Add.h"
+#import "Register.h"
+#import "ResourceReference.h"
+#import "MRPRPreInfo.h"
+#import "UserServiceInfo.h"
+#import "Team.h"
+#import "TeamMember.h"
+#import "ProjectServiceInfo.h"
+#import "CodingVipTipManager.h"
+#import "EAWiki.h"
+#import "TeamPurchaseOrder.h"
+#import "TeamPurchaseBilling.h"
 
 @implementation Coding_NetAPIManager
 + (instancetype)sharedManager {
@@ -37,15 +48,15 @@
 }
 - (void)request_UnReadNotificationsWithBlock:(void (^)(id data, NSError *error))block{
     NSMutableDictionary *notificationDict = [[NSMutableDictionary alloc] init];
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/notification/unread-count" withParams:@{@"type" : [NSNumber numberWithInteger:0]} withMethodType:Get andBlock:^(id data, NSError *error) {
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/notification/unread-count" withParams:@{@"type" : @(0)} withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
 //            @我的
             [notificationDict setObject:[data valueForKeyPath:@"data"] forKey:kUnReadKey_notification_AT];
-            [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/notification/unread-count" withParams:@{@"type" : [NSArray arrayWithObjects:[NSNumber numberWithInteger:1], [NSNumber numberWithInteger:2], nil]} withMethodType:Get andBlock:^(id dataComment, NSError *errorComment) {
+            [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/notification/unread-count" withParams:@{@"type" : @[@(1), @(2)]} withMethodType:Get andBlock:^(id dataComment, NSError *errorComment) {
                 if (dataComment) {
 //                    评论
                     [notificationDict setObject:[dataComment valueForKeyPath:@"data"] forKey:kUnReadKey_notification_Comment];
-                    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/notification/unread-count" withParams:@{@"type" : [NSNumber numberWithInteger:4]} withMethodType:Get andBlock:^(id dataSystem, NSError *errorSystem) {
+                    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/notification/unread-count" withParams:@{@"type" : @[@(4),@(6)]} withMethodType:Get andBlock:^(id dataSystem, NSError *errorSystem) {
                         if (dataSystem) {
 //                            系统
                             [MobClick event:kUmeng_Event_Request_Notification label:@"消息页面的红点通知"];
@@ -65,6 +76,33 @@
         }
     }];
 }
+
+#pragma mark Company
+- (void)request_CompanyExist:(NSString *)company andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/enterprise/info/%@", company];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get autoShowError:NO andBlock:^(id data, NSError *error) {
+        block(data, error);
+    }];
+}
+
+- (void)request_UpdateCompanyInfoBlock:(void (^)(id data, NSError *error))block{
+    NSString *companyKey = [NSObject baseCompany];
+    [[Coding_NetAPIManager sharedManager] request_DetailOfTeam:[Team teamWithGK:companyKey] andBlock:^(id data, NSError *error) {
+        block(data, error);
+    }];
+}
+
+- (void)request_UpdateIsAdministratorBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/is_admin", [NSObject baseCompany]];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            data = data[@"data"];
+            [Login updateLoginIsAdministrator:data];
+        }
+        block(data, error);
+    }];
+}
+
 #pragma mark Login
 - (void)request_Login_With2FA:(NSString *)otpCode andBlock:(void (^)(id data, NSError *error))block{
     if (otpCode.length <= 0) {
@@ -85,13 +123,39 @@
         }
     }];
 }
-- (void)request_Login_WithParams:(id)params andBlock:(void (^)(id data, NSError *error))block{
-    NSString *path = @"api/login";
+- (void)request_Login_WithPath:(NSString *)path Params:(id)params andBlock:(void (^)(id data, NSError *error))block{
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post autoShowError:NO andBlock:^(id data, NSError *error) {
         id resultData = [data valueForKeyPath:@"data"];
         if (resultData) {
-            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"登录_密码"];
+            [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/user/unread-count" withParams:nil withMethodType:Get autoShowError:NO andBlock:^(id data_check, NSError *error_check) {//检查当前账号未设置邮箱和GK
+                if (error_check.userInfo[@"msg"][@"user_need_activate"]) {
+                    block(nil, error_check);
+                }else{
+                    [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"登录_密码"];
+                    
+                    User *curLoginUser = [NSObject objectOfClass:@"User" fromJSON:resultData];
+                    if (curLoginUser) {
+                        [Login doLogin:resultData];
+                    }
+                    block(curLoginUser, nil);
+                }
+            }];
+        }else{
+            block(nil, error);
+        }
+    }];
+}
 
+- (void)request_Login_With_UMSocialResponse:(UMSocialResponse *)resp andBlock:(void (^)(id data, NSError *error))block{
+    NSMutableDictionary *params = @{}.mutableCopy;
+    params[@"account"] = resp.unionId;
+    params[@"oauth_access_token"] = resp.accessToken;
+    params[@"response"] = [NSString stringWithFormat:@"{\"access_token\":\"%@\",\"openid\":\"%@\"}", resp.accessToken, resp.openid];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/oauth/wechat/mobile/login" withParams:params withMethodType:Post autoShowError:NO andBlock:^(id data, NSError *error) {
+        id resultData = [data valueForKeyPath:@"data"];
+        if (resultData) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"登录_第三方登录"];
+            
             User *curLoginUser = [NSObject objectOfClass:@"User" fromJSON:resultData];
             if (curLoginUser) {
                 [Login doLogin:resultData];
@@ -102,12 +166,14 @@
         }
     }];
 }
-- (void)request_Register_WithParams:(id)params andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/register" withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+
+- (void)request_Register_V2_WithParams:(NSDictionary *)params andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = @"api/v2/account/register";
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
         id resultData = [data valueForKeyPath:@"data"];
         if (resultData) {
-            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"注册"];
-
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"注册_V2"];
+            
             User *curLoginUser = [NSObject objectOfClass:@"User" fromJSON:resultData];
             if (curLoginUser) {
                 [Login doLogin:resultData];
@@ -120,24 +186,12 @@
 }
 
 - (void)request_CaptchaNeededWithPath:(NSString *)path andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path  withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path  withParams:nil withMethodType:Get autoShowError:NO andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_Get label:@"是否需要验证码"];
 
             id resultData = [data valueForKeyPath:@"data"];
             block(resultData, nil);
-        }else{
-            block(nil, error);
-        }
-    }];
-}
-
-- (void)request_SendMailToPath:(NSString *)path email:(NSString *)email j_captcha:(NSString *)j_captcha andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"email": email, @"j_captcha": j_captcha} withMethodType:Get andBlock:^(id data, NSError *error) {
-        if (data) {
-            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"发激活or重置密码邮件"];
-
-            block(data, nil);
         }else{
             block(nil, error);
         }
@@ -150,6 +204,63 @@
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"激活or重置密码"];
 
             block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_CheckPhoneCodeWithPhone:(NSString *)phone code:(NSString *)code type:(PurposeType)type block:(void (^)(id data, NSError *error))block{
+    NSString *path = @"api/account/register/check_phone_code";
+    NSMutableDictionary *params = @{@"phone": phone,
+                                    @"code": code}.mutableCopy;
+    switch (type) {
+        case PurposeToRegister:
+            params[@"type"] = @"register";
+            break;
+        case PurposeToPasswordActivate:
+            params[@"type"] = @"activate";
+            break;
+        case PurposeToPasswordReset:
+            params[@"type"] = @"reset";
+            break;
+    }
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"校验手机验证码"];
+        }
+        block(data, error);
+    }];
+}
+- (void)request_ActivateBySetGlobal_key:(NSString *)global_key block:(void (^)(id data, NSError *error))block{
+    NSString *path = @"api/account/global_key/acitvate";
+    NSDictionary *params = @{@"global_key": global_key};
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        id resultData = [data valueForKeyPath:@"data"];
+        if (resultData) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"激活账号_设置GK"];
+            
+            User *curLoginUser = [NSObject objectOfClass:@"User" fromJSON:resultData];
+            if (curLoginUser) {
+                [Login doLogin:resultData];
+            }
+            block(curLoginUser, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_SendActivateEmail:(NSString *)email block:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/account/register/email/send" withParams:@{@"email": email} withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            if ([(NSNumber *)data[@"data"] boolValue]) {
+                [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"激活账号_重发激活邮件"];
+                
+                block(data, nil);
+            }else{
+                [NSObject showHudTipStr:@"发送失败"];
+                block(nil, nil);
+            }
         }else{
             block(nil, error);
         }
@@ -171,6 +282,23 @@
         }
     }];
 }
+
+- (void)request_ProjectsCatergoryAndCounts_WithObj:(ProjectCount *)pCount andBlock:(void (^)(ProjectCount *data, NSError *error))block
+{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/project_count" withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_RootList label:@"筛选列表"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+           ProjectCount *prosC = [NSObject objectOfClass:@"ProjectCount" fromJSON:resultData];
+            block(prosC, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+
+}
+
 - (void)request_ProjectsHaveTasks_WithObj:(Projects *)projects andBlock:(void (^)(id data, NSError *error))block{
     projects.isLoading = YES;
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/projects" withParams:[projects toParams] withMethodType:Get andBlock:^(id data, NSError *error) {
@@ -290,13 +418,28 @@
     }];
 }
 
+- (void)request_ProjectQuit:(NSNumber *)project_id andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/quit", project_id];
+    [NSObject showStatusBarQueryStr:@"正在退出项目"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"退出项目"];
+            
+            [NSObject showStatusBarSuccessStr:@"退出项目成功"];
+            block(data, nil);
+        }else{
+            [NSObject showStatusBarError:error];
+            block(nil, error);
+        }
+    }];
+}
+
 -(void)request_NewProject_WithObj:(Project *)project image:(UIImage *)image andBlock:(void (^)(NSString *, NSError *))block{
     [NSObject showStatusBarQueryStr:@"正在创建项目"];
     NSDictionary *fileDic;
     if (image) {
         fileDic = @{@"image":image,@"name":@"icon",@"fileName":@"icon.jpg"};
     }
-    
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[project toProjectPath] file:fileDic withParams:[project toCreateParams] withMethodType:Post andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"创建项目"];
@@ -349,26 +492,38 @@
     if (!project.name || !passCode) {
         return;
     }
-    NSDictionary *params;
+    NSMutableDictionary *params;
     if (type == VerifyTypePassword) {
-        params = @{
-                   @"name": project.name,
-                   @"two_factor_code": [passCode sha1Str]
-                   };
+        params = @{@"two_factor_code": [passCode sha1Str]}.mutableCopy;
     }else if (type == VerifyTypeTotp){
-        params = @{
-                   @"name": project.name,
-                   @"two_factor_code": passCode
-                   };
+        params = @{@"two_factor_code": passCode}.mutableCopy;
     }else{
         return;
     }
+    if (!kTarget_Enterprise) {
+        params[@"name"] = project.name;
+    }
     [NSObject showStatusBarQueryStr:@"正在删除项目"];
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[project toDeletePath] withParams:params withMethodType:Delete andBlock:^(id data, NSError *error) {
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[project toDeletePath] withParams:params withMethodType:kTarget_Enterprise? Post: Delete andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"删除项目"];
 
             [NSObject showStatusBarSuccessStr:@"删除项目成功"];
+            block(data, nil);
+        }else{
+            [NSObject showStatusBarError:error];
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_ArchiveProject_WithObj:(Project *)project passCode:(NSString *)passCode type:(VerifyType)type andBlock:(void (^)(Project *data, NSError *error))block{
+    NSDictionary *params = @{@"two_factor_code": (type == VerifyTypePassword? [passCode sha1Str]: passCode)};;
+    [NSObject showStatusBarQueryStr:@"正在归档项目"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[project toArchivePath] withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"归档项目"];
+            
+            [NSObject showStatusBarSuccessStr:@"归档项目成功"];
             block(data, nil);
         }else{
             [NSObject showStatusBarError:error];
@@ -434,17 +589,6 @@
             resultData = [resultData objectForKey:@"list"];
 
             NSMutableArray *resultA = [NSObject arrayFromJSON:resultData ofObjects:@"ProjectMember"];
-            
-            __block NSUInteger mineIndex = 0;
-            [resultA enumerateObjectsUsingBlock:^(ProjectMember *obj, NSUInteger idx, BOOL *stop) {
-                if (obj.user_id.integerValue == [Login curLoginUser].id.integerValue) {
-                    mineIndex = idx;
-                    *stop = YES;
-                }
-            }];
-            if (mineIndex > 0) {
-                [resultA exchangeObjectAtIndex:mineIndex withObjectAtIndex:0];
-            }
             block(resultA, nil);
         }else{
             block(nil, error);
@@ -498,6 +642,237 @@
         }
     }];
 }
+- (void)request_EditAliasOfMember:(ProjectMember *)curMember inProject:(Project *)curPro andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/members/update_alias/%@", curPro.id, curMember.user_id];
+    NSDictionary *params = @{@"alias": curMember.editAlias};
+    [NSObject showStatusBarQueryStr:@"正在设置备注"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"项目成员_设置备注名"];
+            
+            [NSObject showStatusBarSuccessStr:@"备注设置成功"];
+        }else{
+            [NSObject showStatusBarError:error];
+        }
+        block(data, error);
+    }];
+}
+- (void)request_EditTypeOfMember:(ProjectMember *)curMember inProject:(Project *)curPro andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/member/%@/%@", curPro.id, curMember.user.global_key, curMember.editType];
+    [NSObject showStatusBarQueryStr:@"正在设置成员类型"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"项目成员_设置成员类型"];
+            
+            [NSObject showStatusBarSuccessStr:@"成员类型设置成功"];
+        }else{
+            [NSObject showStatusBarError:error];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_EditTypeOfUser:(NSString *)global_key inProjects:(NSArray *)pro_id_list roles:(NSArray *)role_list andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/member/%@/projects/role", [Login curLoginCompany].global_key, global_key];
+    NSDictionary *params = @{@"projects": [pro_id_list componentsJoinedByString:@","] ?: @"",
+                             @"roles": [role_list componentsJoinedByString:@","] ?: @""};
+    [NSObject showStatusBarQueryStr:@"正在设置成员类型"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"企业成员_设置项目成员类型"];
+            
+            [MobClick event:kUmeng_Event_UserCenter label:@"成员管理_项目权限设置"];
+            
+            [NSObject showStatusBarSuccessStr:@"成员类型设置成功"];
+        }else{
+            [NSObject showStatusBarError:error];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_ProjectServiceInfo:(Project *)curPro andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/service_info", curPro.owner_user_name, curPro.name];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"项目_信息"];
+            
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"ProjectServiceInfo"];
+        }
+        block(data, error);
+    }];
+}
+
+#pragma mark Team
+- (void)request_JoinedTeamsBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/team/joined" withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"团队_列表"];
+
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"Team"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_DetailOfTeam:(Team *)team andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/get", team.global_key];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"团队_详情"];
+            
+            Team *team = [NSObject objectOfClass:@"Team" fromJSON:data[@"data"]];
+            if ([team.global_key.lowercaseString isEqualToString:[NSObject baseCompany].lowercaseString]) {
+                [Login doLoginCompany:data[@"data"]];
+            }
+            block(team, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_InfoOfTeam:(Team *)team andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/enterprise/%@", team.global_key];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data[@"data"]) {
+            TeamInfo *info = [NSObject objectOfClass:@"TeamInfo" fromJSON:data[@"data"]];
+            [[Coding_NetAPIManager sharedManager] request_DetailOfTeam:team andBlock:^(id dataT, NSError *errorT) {
+                if (dataT) {
+                    [MobClick event:kUmeng_Event_Request_Get label:@"团队_详情"];
+                    
+                    info.locked = team.locked;
+                    block(info, nil);
+                }else{
+                    block(nil, errorT);
+                }
+            }];
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_ProjectsInTeam:(Team *)team isJoined:(BOOL)isJoined andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/projects/%@", team.global_key, isJoined? @"joined": @"unjoined"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"团队_项目列表"];
+            
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"Project"];
+        }
+        block(data, error);
+    }];
+}
+- (void)request_MembersInTeam:(Team *)team andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/members", team.global_key];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"团队_项目列表"];
+            
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"TeamMember"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_UpdateTeamInfo_WithObj:(Team *)curTeam andBlock:(void (^)(id data, NSError *error))block{
+    [NSObject showStatusBarQueryStr:@"正在修改企业信息"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curTeam toUpdateInfoPath] withParams:[curTeam toUpdateInfoParams] withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"企业信息_修改"];
+            
+            [NSObject showStatusBarSuccessStr:@"企业信息修改成功"];
+            id resultData = [data valueForKeyPath:@"data"];
+            Team *team = [NSObject objectOfClass:@"Team" fromJSON:resultData];
+            if (team) {
+                [Login doLoginCompany:resultData];
+            }
+            block(team, nil);
+        }else{
+            [NSObject showStatusBarError:error];
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_OrderListOfTeam:(Team *)team andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/enterprise/%@/orders", team.global_key];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"TeamPurchaseOrder"];
+        }
+        block(data, error);
+    }];
+}
+- (void)request_BillingListOfTeam:(Team *)team andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/enterprise/%@/billings", team.global_key];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"TeamPurchaseBilling"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_EditTeamTypeOfMember:(TeamMember *)curMember andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/member/%@/role/%@", [Login curLoginCompany].global_key, curMember.user.global_key, curMember.editRole];
+    [NSObject showStatusBarQueryStr:@"正在设置企业角色"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"企业_设置成员角色"];
+            
+            [MobClick event:kUmeng_Event_UserCenter label:@"企业管理_企业角色设置"];
+            
+            [NSObject showStatusBarSuccessStr:@"企业角色设置成功"];
+        }else{
+            [NSObject showStatusBarError:error];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_ProjectRoleOfUser:(NSString *)global_key andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/member/%@/projects/role", [Login curLoginCompany].global_key, global_key];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"ProjectRole"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_DeleteTeamMember:(NSString *)golbal_key passCode:(NSString *)passCode type:(VerifyType)type andBlock:(void (^)(id data, NSError *error))block{
+    if (!golbal_key || !passCode) {
+        return;
+    }
+    NSString *path = [NSString stringWithFormat:@"api/team/%@/member/%@", [Login curLoginCompany].global_key, golbal_key];
+    NSDictionary *params;
+    if (type == VerifyTypePassword) {
+        params = @{
+                   @"two_factor_code": [passCode sha1Str]
+                   };
+    }else if (type == VerifyTypeTotp){
+        params = @{
+                   @"two_factor_code": passCode
+                   };
+    }else{
+        return;
+    }
+    [NSObject showStatusBarQueryStr:@"正在删除企业成员"];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"删除企业成员"];
+            
+            [MobClick event:kUmeng_Event_UserCenter label:@"成员管理_删除企业成员"];
+            
+            [NSObject showStatusBarSuccessStr:@"删除企业成员成功"];
+            block(data, nil);
+        }else{
+            [NSObject showStatusBarError:error];
+            block(nil, error);
+        }
+    }];
+}
 
 #pragma mark MRPR
 - (void)request_MRPRS_WithObj:(MRPRS *)curMRPRS andBlock:(void (^)(MRPRS *data, NSError *error))block{
@@ -524,6 +899,34 @@
 
             id resultData = [data valueForKeyPath:@"data"];
             MRPRBaseInfo *resultA = [NSObject objectOfClass:@"MRPRBaseInfo" fromJSON:resultData];
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_MRPRPreInfo_WithObj:(MRPR *)curMRPR andBlock:(void (^)(MRPRPreInfo *data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curMRPR toPrePath] withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"MRPR_详情页面"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            MRPRPreInfo *resultA = [NSObject objectOfClass:@"MRPRPreInfo" fromJSON:resultData];
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_MRReviewerInfo_WithObj:(MRPR *)curMRPR andBlock:(void (^)(ReviewersInfo *data, NSError *error))block {
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curMRPR toReviewersPath] withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"MRPR_详情页面"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            ReviewersInfo *resultA = [NSObject objectOfClass:@"ReviewersInfo" fromJSON:resultData];
             block(resultA, nil);
         }else{
             block(nil, error);
@@ -584,11 +987,36 @@
         }
     }];
 }
-- (void)request_MRPRCancel:(MRPR *)curMRPR andBlock:(void (^)(id data, NSError *error))block{
+- (void)request_MRPRAuthorization:(MRPR *)curMRPR andBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curMRPR toAuthorizationPath] withParams:nil withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"MRPR_授权"];
+
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_MRPRCancel:(MRPR *)curMRPR andBlock:(void (^)(id data, NSError *error))block {
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curMRPR toCancelPath] withParams:nil withMethodType:Post andBlock:^(id data, NSError *error) {
         if (data) {
-            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"MRPR_取消"];
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"MRPR_取消合并"];
+            
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
 
+}
+
+- (void)request_MRPRCancelAuthorization:(MRPR *)curMRPR andBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curMRPR toAuthorizationPath] withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"MRPR_取消授权"];
+            
             block(data, nil);
         }else{
             block(nil, error);
@@ -617,6 +1045,16 @@
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"LineNote_评论_添加"];
 
             NSString *noteable_type = [params objectForKey:@"noteable_type"];
+            if ([params[@"isLineNote"] boolValue]) {
+                [MobClick event:kUmeng_Event_Git label:@"Git_添加_Linenote_评论"];
+            }else{
+                if ([noteable_type isEqualToString:@"MergeRequestBean"] ||
+                    [noteable_type isEqualToString:@"PullRequestBean"]) {
+                    [MobClick event:kUmeng_Event_Git label:@"Git_添加_MR/PR_评论"];
+                }else if ([noteable_type isEqualToString:@"Commit"]){
+                    [MobClick event:kUmeng_Event_Git label:@"Git_添加_Commit_评论"];
+                }
+            }
             if ([noteable_type isEqualToString:@"MergeRequestBean"] ||
                 [noteable_type isEqualToString:@"PullRequestBean"] ||
                 [noteable_type isEqualToString:@"Commit"]) {
@@ -656,8 +1094,13 @@
         if (data) {
             id resultData = [data valueForKeyPath:@"data"];
             ProjectFolders *proFolders = [NSObject objectOfClass:@"ProjectFolders" fromJSON:resultData];
-            ProjectFolder *defaultFolder = [ProjectFolder defaultFolder];
-            [proFolders.list insertObject:defaultFolder atIndex:0];
+            {//默认文件夹
+                ProjectFolder *defaultFolder = [ProjectFolder defaultFolder];
+                ProjectFolder *shareFolder = [ProjectFolder shareFolder];
+                [proFolders.list insertObject:defaultFolder atIndex:0];
+                [proFolders.list insertObject:shareFolder atIndex:0];
+            }
+            //补全 project_id
             for (ProjectFolder *folder in proFolders.list) {
                 folder.project_id = project.id;
                 for (ProjectFolder *sub_folder in folder.sub_folders) {
@@ -669,11 +1112,14 @@
                     [MobClick event:kUmeng_Event_Request_Get label:@"文件夹列表"];
                    
                     //每个文件夹内的文件数量
-                    NSArray *countArray = [countData valueForKey:@"data"];
+                    countData = countData[@"data"];
+                    NSArray *countArray = [countData valueForKey:@"folders"];
                     NSMutableDictionary *countDict = [[NSMutableDictionary alloc] initWithCapacity:countArray.count];
                     for (NSDictionary *item in countArray) {
                         [countDict setObject:[item objectForKey:@"count"] forKey:[item objectForKey:@"folder"]];
                     }
+                    countDict[@(-1)] = countData[@"shareCount"];//shareFolder 特殊处理下
+                    
                     for (ProjectFolder *folder in proFolders.list) {
                         folder.count = [countDict objectForKey:folder.file_id];
                         for (ProjectFolder *sub_folder in folder.sub_folders) {
@@ -700,79 +1146,194 @@
         }
     }];
 }
-- (void)request_FilesInFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toFilesPath] withParams:[folder toFilesParams] withMethodType:Get andBlock:^(id data, NSError *error) {
+//- (void)request_FilesInFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toFilesPath] withParams:[folder toFilesParams] withMethodType:Get andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_Get label:@"文件列表"];
+//
+//            id resultData = [data valueForKeyPath:@"data"];
+//            ProjectFiles *files = [NSObject objectOfClass:@"ProjectFiles" fromJSON:resultData];
+//            for (ProjectFile *file in files.list) {
+//                file.project_id = folder.project_id;
+//            }
+//            block(files, nil);
+//        }else{
+//            block(nil, error);
+//        }
+//    }];
+//}
+//- (void)request_DeleteFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toDeletePath] withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_删除"];
+//
+//            block(folder, nil);
+//        }else{
+//            block(nil, error);
+//        }
+//    }];
+//}
+//- (void)request_RenameFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toRenamePath] withParams:nil withMethodType:Put andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_重命名"];
+//
+//            block(folder, nil);
+//        }else{
+//            block(nil, error);
+//        }
+//    }];
+//}
+//- (void)request_MoveFiles:(NSArray *)fileIdList toFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toMoveToPath] withParams:@{@"fileId": fileIdList} withMethodType:Put andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件_移动"];
+//
+//            block(fileIdList, nil);
+//        }else{
+//            block(nil, error);
+//        }
+//    }];
+//}
+//- (void)request_MoveFolder:(NSNumber *)folderId toFolder:(ProjectFolder *)folder inProject:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/folder/%@/move-to/%@", project.owner_user_name, project.name, folderId, folder.file_id];
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Put andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_移动"];
+//
+//            block(folderId, nil);
+//        }else{
+//            block(nil, error);
+//        }
+//    }];
+//}
+//- (void)request_CreatFolder:(NSString *)fileName inFolder:(ProjectFolder *)parentFolder inProject:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/project/%@/mkdir", project.id.stringValue];
+//    NSDictionary *params = @{@"name" : fileName,
+//                             @"parentId" : (parentFolder && parentFolder.file_id)? parentFolder.file_id.stringValue : @"0" };
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_新建"];
+//
+//            id resultData = [data valueForKeyPath:@"data"];
+//            ProjectFolder *createdFolder = [NSObject objectOfClass:@"ProjectFolder" fromJSON:resultData];
+//            createdFolder.project_id = project.id;
+//            block(createdFolder, nil);
+//        }else{
+//            block(nil, error);
+//        }
+//    }];
+//}
+
+- (void)request_FoldersInFolder:(ProjectFile *)folder andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/folder/%@/sub-folders", folder.project_owner_name, folder.project_name, folder.file_id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_Get label:@"文件列表"];
-
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            NSArray *list = [NSObject arrayFromJSON:resultData ofObjects:@"ProjectFile"];
+            [list setValue:folder.project_name forKey:@"project_name"];
+            [list setValue:folder.project_owner_name forKey:@"project_owner_name"];
+            block(list, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_FilesInFolder:(ProjectFile *)folder andBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toFolderFilesPath] withParams:[folder toFolderFilesParams] withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"文件列表"];
+            
             id resultData = [data valueForKeyPath:@"data"];
             ProjectFiles *files = [NSObject objectOfClass:@"ProjectFiles" fromJSON:resultData];
-            for (ProjectFile *file in files.list) {
-                file.project_id = folder.project_id;
-            }
+            [files.list setValue:folder.project_name forKey:@"project_name"];
+            [files.list setValue:folder.project_owner_name forKey:@"project_owner_name"];
             block(files, nil);
         }else{
             block(nil, error);
         }
     }];
 }
-- (void)request_DeleteFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toDeletePath] withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+- (void)request_DeleteFolder:(ProjectFile *)folder andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/file/delete", folder.project_id];
+    NSDictionary *params = @{@"fileIds": folder.file_id};
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Delete andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_删除"];
-
+            
             block(folder, nil);
         }else{
             block(nil, error);
         }
     }];
 }
-- (void)request_RenameFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toRenamePath] withParams:nil withMethodType:Put andBlock:^(id data, NSError *error) {
+
+- (void)request_RenameFolder:(ProjectFile *)folder andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/folder/%@", folder.project_owner_name, folder.project_name, folder.file_id];
+    NSDictionary *params = @{@"name": folder.next_name};
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Put andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_重命名"];
-
+            
             block(folder, nil);
         }else{
             block(nil, error);
         }
     }];
 }
+- (void)request_MoveFiles:(NSArray *)fileIdList toFolder:(ProjectFile *)folder andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/folder/%@/move-files", folder.project_owner_name, folder.project_name, folder.file_id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"fileId": fileIdList} withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件_移动"];
+            
+            block(fileIdList, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_MoveFolder:(NSNumber *)folderId toFolder:(ProjectFile *)folder inProject:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/folder/%@/move-to/%@", project.owner_user_name, project.name, folderId, folder.file_id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Put andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_移动"];
+            
+            block(folderId, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_CreatFolder:(NSString *)fileName inFolder:(ProjectFile *)parentFolder inProject:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/folder", project.owner_user_name, project.name];
+    NSDictionary *params = @{@"name" : fileName,
+                             @"parentId" : (parentFolder && parentFolder.file_id)? parentFolder.file_id : @0 };
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_新建"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            ProjectFile *createdFolder = [NSObject objectOfClass:@"ProjectFile" fromJSON:resultData];
+            createdFolder.project_id = project.id ?: parentFolder.project_id;
+            createdFolder.project_owner_name = parentFolder.project_owner_name ?: project.owner_user_name;
+            createdFolder.project_name = parentFolder.project_name ?: project.name;
+            block(createdFolder, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
 - (void)request_DeleteFiles:(NSArray *)fileIdList inProject:(NSNumber *)project_id andBlock:(void (^)(id data, NSError *error))block{
     NSString *path = [NSString stringWithFormat:@"api/project/%@/file/delete", project_id.stringValue];
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"fileIds" : fileIdList} withMethodType:Delete andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件_删除"];
-
+            
             block(fileIdList, nil);
-        }else{
-            block(nil, error);
-        }
-    }];
-}
-- (void)request_MoveFiles:(NSArray *)fileIdList toFolder:(ProjectFolder *)folder andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[folder toMoveToPath] withParams:@{@"fileId": fileIdList} withMethodType:Put andBlock:^(id data, NSError *error) {
-        if (data) {
-            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件_移动"];
-
-            block(fileIdList, nil);
-        }else{
-            block(nil, error);
-        }
-    }];
-}
-- (void)request_CreatFolder:(NSString *)fileName inFolder:(ProjectFolder *)parentFolder inProject:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
-    NSString *path = [NSString stringWithFormat:@"api/project/%@/mkdir", project.id.stringValue];
-    NSDictionary *params = @{@"name" : fileName,
-                             @"parentId" : (parentFolder && parentFolder.file_id)? parentFolder.file_id.stringValue : @"0" };
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
-        if (data) {
-            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件夹_新建"];
-
-            id resultData = [data valueForKeyPath:@"data"];
-            ProjectFolder *createdFolder = [NSObject objectOfClass:@"ProjectFolder" fromJSON:resultData];
-            createdFolder.project_id = project.id;
-            block(createdFolder, nil);
         }else{
             block(nil, error);
         }
@@ -829,7 +1390,8 @@
     if (!nameStr) {
         return;
     }
-    NSString *path = [NSString stringWithFormat:@"api/project/%@/files/%@/rename", file.project_id, file.file_id];
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/files/%@/rename", file.project_owner_name, file.project_name, file.file_id];
+//    NSString *path = [NSString stringWithFormat:@"api/project/%@/files/%@/rename", file.project_id, file.file_id];
     NSDictionary *params = @{@"name" : nameStr};
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Put andBlock:^(id data, NSError *error) {
         if (data) {
@@ -923,12 +1485,39 @@
         }
     }];
 }
-- (void)request_CloseShareHash:(NSString *)hashStr andBlock:(void (^)(id data, NSError *error))block{
+- (void)request_CloseFileShareHash:(NSString *)hashStr andBlock:(void (^)(id data, NSError *error))block{
     NSString *path = [NSString stringWithFormat:@"api/share/%@", hashStr];
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"文件_关闭共享"];
+            
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
 
+- (void)request_OpenShareOfWiki:(EAWiki *)wiki andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = @"api/share/create";
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:[wiki toShareParams] withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_开启共享"];
+            
+            NSString *share_url = [[data valueForKey:@"data"] valueForKey:@"url"];
+            block(share_url, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_CloseWikiShareHash:(NSString *)hashStr andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/share/%@", hashStr];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_关闭共享"];
+            
             block(data, nil);
         }else{
             block(nil, error);
@@ -941,6 +1530,7 @@
     NSString *refAndPath = [NSString handelRef:codeTree.ref path:codeTree.path];
     NSString *treePath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/tree/%@", project.owner_user_name, project.name, refAndPath];
     NSString *treeinfoPath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/treeinfo/%@", project.owner_user_name, project.name, refAndPath];
+    NSString *treeListPath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/treelist/%@", project.owner_user_name, project.name, codeTree.ref];
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:treePath withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
             id resultData = [data valueForKeyPath:@"data"];
@@ -948,14 +1538,19 @@
             
             [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:treeinfoPath withParams:nil withMethodType:Get andBlock:^(id infoData, NSError *infoError) {
                 if (infoData) {
-                    [MobClick event:kUmeng_Event_Request_Get label:@"代码目录"];
-
                     infoData = [infoData valueForKey:@"data"];
                     infoData = [infoData valueForKey:@"infos"];
                     NSMutableArray *infoArray = [NSObject arrayFromJSON:infoData ofObjects:@"CodeTree_CommitInfo"];
                     [rCodeTree configWithCommitInfos:infoArray];
-                    
-                    block(rCodeTree, nil);
+                    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:treeListPath withParams:nil withMethodType:Get andBlock:^(id listData, NSError *listError) {
+                        if (listData) {
+                            [MobClick event:kUmeng_Event_Request_Get label:@"代码目录"];
+                            rCodeTree.treeList = listData[@"data"];
+                            block(rCodeTree, nil);
+                        }else{
+                            block(nil, listError);
+                        }
+                    }];
                 }else{
                     block(nil, infoError);
                 }
@@ -976,6 +1571,32 @@
             CodeFile *rCodeFile = [NSObject objectOfClass:@"CodeFile" fromJSON:resultData];
             rCodeFile.path = codeFile.path;
             block(rCodeFile, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_EditCodeFile:(CodeFile *)codeFile withPro:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
+    NSString *filePath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/edit/%@", project.owner_user_name, project.name, [NSString handelRef:codeFile.ref path:codeFile.path]];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:filePath withParams:[codeFile toEditParams] withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"代码文件_修改"];
+            
+            block(data, nil);//{"code":0}
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_DeleteCodeFile:(CodeFile *)codeFile withPro:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
+    NSString *filePath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/delete/%@", project.owner_user_name, project.name, [NSString handelRef:codeFile.ref path:codeFile.path]];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:filePath withParams:[codeFile toDeleteParams] withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"代码文件_删除"];
+            
+            block(data, nil);//{"code":0}
         }else{
             block(nil, error);
         }
@@ -1011,6 +1632,331 @@
         }
     }];
 }
+
+- (void)request_UploadAssets:(NSArray *)assets inCodeTree:(CodeTree *)codeTree withPro:(Project *)project andBlock:(void (^)(id data, NSError *error))block progerssBlock:(void (^)(CGFloat progressValue))progressBlock{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/git/upload/%@", project.owner_user_name, project.name, [NSString handelRef:codeTree.ref path:codeTree.path]];
+    NSMutableDictionary *params = @{}.mutableCopy;
+    params[@"message"] = @"Add files via upload";
+    params[@"lastCommitSha"] = codeTree.headCommit.commitId;
+
+    [[CodingNetAPIClient sharedJsonClient] uploadAssets:assets path:path name:@"files" params:params successBlock:^(AFHTTPRequestOperation *operation, id responseObject) {
+        [MobClick event:kUmeng_Event_Request_Get label:@"代码文件_上传图片"];
+        
+        block(responseObject, nil);
+    } failureBlock:^(AFHTTPRequestOperation *operation, NSError *error) {
+        block(nil, error);
+    } progerssBlock:^(CGFloat progressValue) {
+        progressBlock(progressValue);
+    }];
+}
+
+- (void)request_CreateCodeFile:(CodeFile *)codeFile withPro:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
+    NSString *filePath = [NSString stringWithFormat:@"api/user/%@/project/%@/git/new/%@", project.owner_user_name, project.name, [NSString handelRef:codeFile.ref path:codeFile.path]];
+
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:filePath withParams:[codeFile toCreateParams] withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"代码文件_创建文本文件"];
+            
+            block(data, nil);//{"code":0}
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_CodeBranches_WithObj:(EACodeBranches *)curObj andBlock:(void (^)(EACodeBranches *data, NSError *error))block{
+    curObj.isLoading = YES;
+    //拿 branch 列表
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curObj toPath] withParams:[curObj toParams] withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"分支管理_列表"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            EACodeBranches *resultA = [NSObject objectOfClass:@"EACodeBranches" fromJSON:resultData];
+            if (resultA.list.count > 0) {
+                //拿 branch 对应的 metrics
+                void (^metricsQueryBlock)() = ^(){
+                    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/git/branch_metrics", curObj.curPro.owner_user_name, curObj.curPro.name];
+                    NSString *targetsStr = [[resultA.list valueForKeyPath:@"last_commit.commitId"] componentsJoinedByString:@","];
+                    NSDictionary *params = @{@"base": curObj.defaultBranch.last_commit.commitId ?: @"",
+                                             @"targets": targetsStr
+                                             };
+                    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Get andBlock:^(id dataM, NSError *errorM) {
+                        if (dataM) {
+                            dataM = dataM[@"data"];
+                            for (CodeBranchOrTag *curB in resultA.list) {
+                                curB.branch_metric = [NSObject objectOfClass:@"CodeBranchOrTagMetric" fromJSON:dataM[curB.last_commit.commitId]];
+                            }
+                            block(resultA, nil);
+                        }else{
+                            block(nil, errorM);
+                        }
+                        curObj.isLoading = NO;
+                    }];
+                };
+                curObj.defaultBranch = curObj.defaultBranch ?: resultA.defaultBranch;
+                if (!curObj.defaultBranch) {//请求 default 分支
+                    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[NSString stringWithFormat:@"api/user/%@/project/%@/git/branches/default", curObj.curPro.owner_user_name, curObj.curPro.name] withParams:nil withMethodType:Get andBlock:^(id dataD, NSError *errorD) {
+                        if (dataD) {
+                            curObj.defaultBranch = [NSObject objectOfClass:@"CodeBranchOrTag" fromJSON:dataD[@"data"]];
+                            metricsQueryBlock();
+                        }else{
+                            curObj.isLoading = NO;
+                            block(nil, errorD);
+                        }
+                    }];
+                }else{
+                    metricsQueryBlock();
+                }
+            }else{
+                curObj.isLoading = NO;
+                block(resultA, nil);
+            }
+        }else{
+            curObj.isLoading = NO;
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_DeleteCodeBranch:(CodeBranchOrTag *)curB inProject:(Project *)curP andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/git/branches/delete", curP.owner_user_name, curP.name];
+    NSDictionary *params = @{@"branch_name": curB.name};
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"分支管理_删除"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_CodeReleases_WithObj:(EACodeReleases *)curObj andBlock:(void (^)(EACodeReleases *data, NSError *error))block{
+    curObj.isLoading = YES;
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[curObj toPath] withParams:[curObj toParams] withMethodType:Get andBlock:^(id data, NSError *error) {
+        curObj.isLoading = NO;
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"发布管理_列表"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            EACodeReleases *resultA = [NSObject objectOfClass:@"EACodeReleases" fromJSON:resultData];
+            if (curObj.curPro) {
+                [resultA.list setValue:curObj.curPro forKey:@"project"];
+            }
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_CodeRelease_WithObj:(EACodeRelease *)curObj andBlock:(void (^)(EACodeRelease *data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/git/releases/tag/%@", curObj.project.owner_user_name, curObj.project.name, curObj.tag_name];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"发布管理_详情"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            EACodeRelease *resultA = [NSObject objectOfClass:@"EACodeRelease" fromJSON:resultData];
+            resultA.project = curObj.project;
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_DeleteCodeRelease:(EACodeRelease *)curObj andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/git/releases/delete/%@", curObj.project.owner_user_name, curObj.project.name, curObj.tag_name];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"发布管理_删除"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_ModifyCodeRelease:(EACodeRelease *)curObj andBlock:(void (^)(EACodeRelease *data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:curObj.editPath withParams:curObj.editParams withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"发布管理_删除"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            EACodeRelease *resultA = [NSObject objectOfClass:@"EACodeRelease" fromJSON:resultData];
+            resultA.project = curObj.project;
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+#pragma mark Wiki
+- (void)request_WikiListWithPro:(Project *)pro andBlock:(void (^)(id data, NSError *error))block{
+    
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wikis", pro.owner_user_name, pro.name];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"Wiki_列表"];
+            
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"EAWiki"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_WikiDetailWithPro:(Project *)pro iid:(NSNumber *)iid version:(NSNumber *)version andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@", pro.owner_user_name, pro.name, iid];
+    NSMutableDictionary *params = @{}.mutableCopy;
+    params[@"version"] = version;
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"Wiki_详情"];
+            
+            data = [NSObject objectOfClass:@"EAWiki" fromJSON:data[@"data"]];
+        }
+        block(data, error);
+    }];
+}
+- (void)request_DeleteWikiWithPro:(Project *)pro iid:(NSNumber *)iid andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@", pro.owner_user_name, pro.name, iid];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_删除"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_ModifyWiki:(EAWiki *)wiki pro:(Project *)pro andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki", pro.owner_user_name, pro.name];
+    NSMutableDictionary *params = @{}.mutableCopy;
+    params[@"iid"] = wiki.iid;
+    params[@"parentIid"] = wiki.parentIid;
+    params[@"order"] = wiki.order;
+    params[@"msg"] = @"Modified By App";
+    params[@"title"] = wiki.mdTitle;
+    params[@"content"] = wiki.mdContent;
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_修改"];
+            
+            data = [NSObject objectOfClass:@"EAWiki" fromJSON:data[@"data"]];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_WikiHistoryWithWiki:(EAWiki *)wiki pro:(Project *)pro andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@/histories", pro.owner_user_name, pro.name, wiki.iid];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"Wiki_历史版本"];
+            
+            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"EAWiki"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_RevertWiki:(NSNumber *)wikiIid toVersion:(NSNumber *)version pro:(Project *)pro andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@/history", pro.owner_user_name, pro.name, wikiIid];
+    NSMutableDictionary *params = @{}.mutableCopy;
+    params[@"version"] = version;
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_恢复"];
+            
+            data = [NSObject objectOfClass:@"EAWiki" fromJSON:data[@"data"]];
+        }
+        block(data, error);
+    }];
+}
+
+//- (void)request_WikiListWithProName:(NSString *)proName andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wikis", [Login curLoginCompany].global_key, proName];
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_Get label:@"Wiki_列表"];
+//
+//            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"EAWiki"];
+//        }
+//        block(data, error);
+//    }];
+//}
+//
+//- (void)request_WikiDetailWithProName:(NSString *)proName iid:(NSNumber *)iid version:(NSNumber *)version andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@", [Login curLoginCompany].global_key, proName, iid];
+//    NSMutableDictionary *params = @{}.mutableCopy;
+//    params[@"version"] = version;
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Get andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_Get label:@"Wiki_详情"];
+//
+//            data = [NSObject objectOfClass:@"EAWiki" fromJSON:data[@"data"]];
+//        }
+//        block(data, error);
+//    }];
+//}
+//- (void)request_DeleteWikiWithProName:(NSString *)proName iid:(NSNumber *)iid andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@", [Login curLoginCompany].global_key, proName, iid];
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_删除"];
+//        }
+//        block(data, error);
+//    }];
+//}
+//
+//- (void)request_ModifyWiki:(EAWiki *)wiki proName:(NSString *)proName andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki", [Login curLoginCompany].global_key, proName];
+//    NSMutableDictionary *params = @{}.mutableCopy;
+//    params[@"iid"] = wiki.iid;
+//    params[@"parentIid"] = wiki.parentIid;
+//    params[@"order"] = wiki.order;
+//    params[@"msg"] = @"Modified By App";
+//    params[@"title"] = wiki.mdTitle;
+//    params[@"content"] = wiki.mdContent;
+//
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_修改"];
+//
+//            [MobClick event:kUmeng_Event_Wiki label:@"Wiki_编辑_提交"];
+//
+//            data = [NSObject objectOfClass:@"EAWiki" fromJSON:data[@"data"]];
+//        }
+//        block(data, error);
+//    }];
+//}
+//
+//- (void)request_WikiHistoryWithWiki:(EAWiki *)wiki proName:(NSString *)proName andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@/histories", [Login curLoginCompany].global_key, proName, wiki.iid];
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_Get label:@"Wiki_历史版本"];
+//
+//            data = [NSObject arrayFromJSON:data[@"data"] ofObjects:@"EAWiki"];
+//        }
+//        block(data, error);
+//    }];
+//}
+//
+//- (void)request_RevertWiki:(NSNumber *)wikiIid toVersion:(NSNumber *)version proName:(NSString *)proName andBlock:(void (^)(id data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/wiki/%@/history", [Login curLoginCompany].global_key, proName, wikiIid];
+//    NSMutableDictionary *params = @{}.mutableCopy;
+//    params[@"version"] = version;
+//
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"Wiki_恢复"];
+//
+//            data = [NSObject objectOfClass:@"EAWiki" fromJSON:data[@"data"]];
+//        }
+//        block(data, error);
+//    }];
+//}
 
 #pragma mark Task
 - (void)request_AddTask:(Task *)task andBlock:(void (^)(id data, NSError *error))block{
@@ -1097,33 +2043,74 @@
 }
 
 - (void)request_TaskDetail:(Task *)task andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[task toTaskDetailPath] withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[task toTaskDetailPath] withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {//请求任务基本内容
         if (data) {
             id resultData = [data valueForKeyPath:@"data"];
             Task *resultA = [NSObject objectOfClass:@"Task" fromJSON:resultData];
-            if (resultA.has_description.boolValue) {
-                [MobClick event:kUmeng_Event_Request_Get label:@"任务_详情_有描述"];
+            [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[resultA toWatchersPath] withParams:@{@"pageSize": @1000} withMethodType:Get andBlock:^(id dataW, NSError *errorW) {//请求任务关注者
+                if (dataW) {
+                    dataW = dataW[@"data"][@"list"];
+                    NSArray *watchers = [NSObject arrayFromJSON:dataW ofObjects:@"User"];
+                    resultA.watchers = watchers.mutableCopy;
+                    
+                    if (resultA.has_description.boolValue) {
+                        [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[resultA toDescriptionPath] withParams:nil withMethodType:Get andBlock:^(id dataD, NSError *errorD) {//请求任务描述
+                            if (dataD) {
+                                [MobClick event:kUmeng_Event_Request_Get label:@"任务_详情_有描述"];
 
-                [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[resultA toDescriptionPath] withParams:nil withMethodType:Get andBlock:^(id dataD, NSError *errorD) {
-                    if (dataD) {
-                        dataD = [dataD valueForKey:@"data"];
-                        Task_Description *taskD = [NSObject objectOfClass:@"Task_Description" fromJSON:dataD];
-                        resultA.task_description = taskD;
-                        block(resultA, nil);
+                                dataD = [dataD valueForKey:@"data"];
+                                Task_Description *taskD = [NSObject objectOfClass:@"Task_Description" fromJSON:dataD];
+                                resultA.task_description = taskD;
+                                block(resultA, nil);
+                            }else{
+                                block(nil, errorD);
+                            }
+                        }];
                     }else{
-                        block(nil, errorD);
+                        [MobClick event:kUmeng_Event_Request_Get label:@"任务_详情_无描述"];
+                        
+                        block(resultA, nil);
                     }
-                }];
-            }else{
-                [MobClick event:kUmeng_Event_Request_Get label:@"任务_详情_无描述"];
-
-                block(resultA, nil);
-            }
+                }else{
+                    block(nil, errorW);
+                }
+            }];
         }else{
             block(nil, error);
         }
     }];
 }
+- (void)request_TaskResourceReference:(Task *)task andBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[task toResourceReferencePath] withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"任务_关联资源"];
+
+            ResourceReference *rr = [NSObject objectOfClass:@"ResourceReference" fromJSON:data[@"data"]];
+            block(rr, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_DeleteResourceReference:(NSNumber *)iid ofTask:(Task *)task andBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[task toResourceReferencePath] withParams:@{@"iid": iid} withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"任务_关联资源_删除"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_DeleteResourceReference:(NSNumber *)iid ResourceReferencePath:(NSString *)ResourceReferencePath andBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:ResourceReferencePath withParams:@{@"iid": iid} withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"任务_关联资源_删除"];
+        }
+        block(data, error);
+    }];
+}
+
 - (void)request_ActivityListOfTask:(Task *)task andBlock:(void (^)(id data, NSError *error))block{
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[task toActivityListPath] withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
@@ -1162,10 +2149,323 @@
     }];
 }
 
+- (void)request_ChangeWatcher:(User *)watcher ofTask:(Task *)task andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/task/%@/user/%@/watch", task.id.stringValue, watcher.global_key];
+    User *hasWatcher = [task hasWatcher:watcher];
+    NetworkMethod method = hasWatcher? Delete: Post;
+
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:method andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:method == Post? @"任务_添加关注者": @"任务_删除关注者"];
+            
+            if (!hasWatcher && watcher) {
+                [task.watchers addObject:watcher];
+            }else if (hasWatcher){
+                [task.watchers removeObject:hasWatcher];
+            }
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_projects_tasks_labelsWithRole:(TaskRoleType)role projectId:(NSString *)projectId andBlock:(void (^)(id data, NSError *error))block {
+    NSString *roleStr;
+    NSDictionary *param;
+    NSArray *roleArray = @[@"owner", @"watcher", @"creator"];
+    if (role < roleArray.count) {
+        roleStr = roleArray[role];
+    }
+    
+    if (roleStr != nil) {
+        param = @{@"role": roleStr};
+    }
+
+    NSString *urlStr;
+    if (projectId == nil) {
+        urlStr = @"api/projects/tasks/labels";
+    } else {
+        urlStr = [NSString stringWithFormat:@"api/project/%@/tasks/labels", projectId];
+    }
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:urlStr withParams:param withMethodType:Get andBlock:^(id data, NSError *error) {
+        NSArray *dataArray = data[@"data"];
+        NSMutableDictionary *pinyinDict = @{}.mutableCopy;
+        for (NSDictionary *dict in dataArray) {
+            NSString *pinyinName = dict[@"name"];
+            pinyinName = [pinyinName stringByReplacingOccurrencesOfString:@"呵" withString:@"HE"];//一个多音字的..唉
+            pinyinName = [pinyinName transformToPinyin];
+            [pinyinDict setObject:dict forKey:pinyinName];
+        }
+        
+        NSArray *nameSortArray = [[pinyinDict allKeys] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+        
+        NSMutableArray *newPinyinData = @[].mutableCopy;
+        for (NSString *pinyinName in nameSortArray) {
+            [newPinyinData addObject:pinyinDict[pinyinName]];
+        }
+        
+        if (data) {
+            block(newPinyinData, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+
+}
+
+- (void)request_tasks_searchWithUserId:(NSString *)userId role:(TaskRoleType )role project_id:(NSString *)project_id keyword:(NSString *)keyword status:(NSString *)status label:(NSString *)label page:(NSInteger)page andBlock:(void (^)(id data, NSError *error))block {
+    NSMutableDictionary *param = @{@"page": @(page)}.mutableCopy;
+    if (userId != nil) {
+        [param setValue:userId forKey:@"owner"];
+    }
+    if (project_id != nil && project_id.integerValue >= 0) {
+        [param setValue:project_id forKey:@"project_id"];
+    }
+    if (keyword != nil) {
+        [param setValue:keyword forKey:@"keyword"];
+    }
+    if (status != nil) {
+        [param setValue:status forKey:@"status"];
+    }
+    if (label != nil) {
+        [param setValue:label forKey:@"label"];
+    }
+    
+    NSArray *roleArray = @[@"owner", @"watcher", @"creator"];
+    if (role < roleArray.count) {
+        [param setValue:[Login curLoginUser].id.stringValue forKey:roleArray[role]];
+
+    }
+    NSString *path = keyword.length > 0? @"api/tasks/search": @"api/tasks/list";
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:param withMethodType:Get andBlock:^(id data, NSError *error) {
+        
+        Tasks *pros = [NSObject objectOfClass:@"Tasks" fromJSON:data[@"data"]];
+        pros.list = [NSObject arrayFromJSON:data[@"data"][@"list"] ofObjects:@"Task"];
+        if (status.integerValue == 1) {
+            pros.processingList = pros.list;
+        } else if (status.integerValue == 2) {
+            pros.doneList = pros.list;
+        }
+ 
+        if (data) {
+            block(pros, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_project_tasks_countWithProjectId:(NSString *)projectId andBlock:(void (^)(id data, NSError *error))block {
+    
+    NSString *urlStr;
+    if (projectId == nil) {
+        urlStr = @"api/tasks/count";
+    } else {
+        urlStr = [NSString stringWithFormat:@"api/project/%@/tasks/counts", projectId];
+    }
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:urlStr withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_project_task_countWithProjectId:(NSString *)projectId andBlock:(void (^)(id data, NSError *error))block {
+    
+    NSString *urlStr;
+    if (projectId == nil) {
+        urlStr = @"api/tasks/count";
+    } else {
+        urlStr = [NSString stringWithFormat:@"api/project/%@/task/count", projectId];
+    }
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:urlStr withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+//- (void)request_project_user_tasks_countsWithProjectId:(NSString *)projectId memberId:(NSString *)memberId andBlock:(void (^)(id data, NSError *error))block {
+//
+//    NSString *urlStr;
+//    if (memberId == nil) {
+//        urlStr = @"api/tasks/search";
+//    } else {
+//        urlStr = [NSString stringWithFormat:@"api/project/%@/user/%@/tasks/counts", projectId, memberId];
+//    }
+//
+//    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:urlStr withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+//        if (data) {
+//            block(data, nil);
+//        }else{
+//            block(nil, error);
+//        }
+//    }];
+//}
+
+- (void)request_tasks_searchWithUserId:(NSString *)userId role:(TaskRoleType )role project_id:(NSString *)project_id andBlock:(void (^)(id data, NSError *error))block {
+    
+    NSString *urlStr;
+    NSDictionary *param;
+    if (userId == nil) { //无成员时
+        if (role == TaskRoleTypeWatcher || role == TaskRoleTypeCreator) { //创建和关注
+            urlStr = [NSString stringWithFormat:@"api/project/%@/tasks/counts", project_id];
+        } else { //全部任务
+            urlStr = [NSString stringWithFormat:@"api/project/%@/task/count", project_id];
+        }
+    } else { //有成员时
+        urlStr = [NSString stringWithFormat:@"api/project/%@/user/%@/tasks/counts", project_id, userId];
+
+    }
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:urlStr withParams:param withMethodType:Get andBlock:^(id data, NSError *error) {
+        
+        if (data) {
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_projects_tasks_labelsWithRole:(TaskRoleType)role projectId:(NSString *)projectId projectName:(NSString *)projectName memberId:(NSString *)memberId owner_user_name:(NSString *)owner_user_name andBlock:(void (^)(id data, NSError *error))block {
+    NSDictionary *param;
+    NSArray *roleArray = @[@"owner", @"watcher", @"creator"];
+    if (role < roleArray.count) {
+        param = @{@"role": roleArray[role]};
+    }
+    NSString *urlStr;
+    if (projectId != nil && memberId != nil) { //有成员
+         urlStr = [NSString stringWithFormat:@"api/project/%@/user/%@/tasks/labels", projectId, memberId];
+        
+    } else {
+        if (role == TaskRoleTypeWatcher || role == TaskRoleTypeCreator) {
+            urlStr = [NSString stringWithFormat:@"api/project/%@/tasks/labels", projectId];
+
+        } else {
+            urlStr = [NSString stringWithFormat:@"api/user/%@/project/%@/task/label?withCount=true", owner_user_name, projectName];
+        }
+    }
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:urlStr withParams:param withMethodType:Get andBlock:^(id data, NSError *error) {
+        NSArray *dataArray = data[@"data"];
+        NSMutableDictionary *pinyinDict = @{}.mutableCopy;
+        for (NSDictionary *dict in dataArray) {
+            NSString *pinyinName = [dict[@"name"] transformToPinyin];
+            [pinyinDict setObject:dict forKey:pinyinName];
+        }
+        
+        NSArray *nameSortArray = [[pinyinDict allKeys] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+        
+        NSMutableArray *newPinyinData = @[].mutableCopy;
+        for (NSString *pinyinName in nameSortArray) {
+            [newPinyinData addObject:pinyinDict[pinyinName]];
+        }
+        
+        if (data) {
+            block(newPinyinData, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+    
+}
+
+#pragma mark - TaskBoard
+- (void)request_BoardTaskListsInPro:(Project *)pro andBlock:(void (^)(NSArray<EABoardTaskList *> *data, NSError *error))block{
+//    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/tasks/board/list", pro.owner_user_name, pro.name];
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/tasks/board", pro.owner_user_name, pro.name];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"pageSize": @999} withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"看板列表"];
+            
+//            NSArray<EABoardTaskList *> *resultA = [NSObject arrayFromJSON:data[@"data"][@"list"] ofObjects:@"EABoardTaskList"];
+            NSArray<EABoardTaskList *> *resultA = [NSObject arrayFromJSON:data[@"data"][@"board_lists"] ofObjects:@"EABoardTaskList"];
+            if (resultA) {
+                if (resultA.count > 2) {
+                    pro.hasEverHandledBoard = YES;
+                }
+                pro.board_id = resultA.firstObject.board_id;
+                [resultA setValue:pro forKey:@"curPro"];//辅助属性
+            }
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_AddBoardTaskListsInPro:(Project *)pro withTitle:(NSString *)title andBlock:(void (^)(EABoardTaskList *data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/tasks/board/%@/list", pro.owner_user_name, pro.name, pro.board_id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"title": title ?: @""} withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"看板列表_添加"];
+            
+            data = [NSObject objectOfClass:@"EABoardTaskList" fromJSON:data[@"data"]];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_DeleteBoardTaskList:(EABoardTaskList *)boardTL andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/tasks/board/%@/list/%@", boardTL.curPro.owner_user_name, boardTL.curPro.name, boardTL.board_id, boardTL.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"看板列表_删除"];
+        }
+        block(data, error);
+    }];
+
+}
+
+- (void)request_RenameBoardTaskList:(EABoardTaskList *)boardTL withTitle:(NSString *)title andBlock:(void (^)(EABoardTaskList *data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/tasks/board/%@/list/%@", boardTL.curPro.owner_user_name, boardTL.curPro.name, boardTL.board_id, boardTL.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"title": title ?: @""} withMethodType:Put andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"看板列表_修改"];
+            
+            data = [NSObject objectOfClass:@"EABoardTaskList" fromJSON:data[@"data"]];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_TaskInBoardTaskList:(EABoardTaskList *)boardTL andBlock:(void (^)(EABoardTaskList *data, NSError *error))block{//这里返回的 data 主要是 list 和 page 数据，而没有 EABoardTaskList 的相关业务属性
+    boardTL.isLoading = YES;
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/tasks/board/%@/list/%@/tasks", boardTL.curPro.owner_user_name, boardTL.curPro.name, boardTL.board_id, boardTL.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:boardTL.toParams withMethodType:Get andBlock:^(id data, NSError *error) {
+        boardTL.isLoading = NO;
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"看板列表_任务列表"];
+            
+            data = [NSObject objectOfClass:@"EABoardTaskList" fromJSON:data[@"data"]];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_PutTask:(Task *)task toBoardTaskList:(EABoardTaskList *)boardTL andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/user/%@/project/%@/tasks/board/%@/list/%@/task/%@", task.project.owner_user_name, task.project.name, boardTL.board_id, boardTL.id, task.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Put andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"任务_修改看板列表"];
+        }
+        block(data, error);
+    }];
+}
+
 #pragma mark User
 - (void)request_AddUser:(User *)user ToProject:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
-//    一次添加多个成员(逗号分隔)：users=102,4
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[NSString stringWithFormat:@"api/project/%ld/members/add", project.id.longValue] withParams:@{@"users" : user.id} withMethodType:Post andBlock:^(id data, NSError *error) {
+//    一次添加多个成员(逗号分隔)：users=102,4 (以后只支持 gk，不支持 id 了)
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[NSString stringWithFormat:@"api/project/%ld/members/gk/add", project.id.longValue] withParams:@{@"users" : user.global_key} withMethodType:Post andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"项目_添加成员"];
 
@@ -1203,13 +2503,22 @@
             ProjectTopic *resultT = [NSObject objectOfClass:@"ProjectTopic" fromJSON:resultData];
             resultT.mdLabels = [resultT.labels mutableCopy];
             [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[proTopic toTopicPath] withParams:@{@"type": [NSNumber numberWithInteger:1]} withMethodType:Get andBlock:^(id dataMD, NSError *errorMD) {
-                proTopic.isTopicLoading = NO;
                 if (dataMD) {
-                    [MobClick event:kUmeng_Event_Request_Get label:@"讨论详情"];
-
                     resultT.mdTitle = [[dataMD valueForKey:@"data"] valueForKey:@"title"];
                     resultT.mdContent = [[dataMD valueForKey:@"data"] valueForKey:@"content"];
-                    block(resultT, nil);
+                    NSString *watchersPath = [NSString stringWithFormat:@"api/project/%@/topic/%@/watchers", resultT.project_id.stringValue, resultT.id.stringValue];
+                    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:watchersPath withParams:@{@"pageSize": @1000} withMethodType:Get andBlock:^(id dataW, NSError *errorW) {
+                        proTopic.isTopicLoading = NO;
+                        if (dataW) {
+                            [MobClick event:kUmeng_Event_Request_Get label:@"讨论详情"];
+
+                            NSArray *watchers = [NSArray arrayFromJSON:dataW[@"data"][@"list"] ofObjects:@"User"];
+                            resultT.watchers = watchers.mutableCopy;
+                            block(resultT, nil);
+                        }else{
+                            block(nil, errorW);
+                        }
+                    }];
                 }else{
                     block(nil, errorMD);
                 }
@@ -1286,8 +2595,42 @@
         }
     }];
 }
-- (void)request_DoComment_WithProjectTpoic:(ProjectTopic *)proTopic andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[proTopic toDoCommentPath] withParams:[proTopic toDoCommentParams] withMethodType:Post andBlock:^(id data, NSError *error) {
+- (void)request_Comments_WithAnswer:(ProjectTopic *)proTopic inProjectId:(NSNumber *)projectId andBlock:(void (^)(id data, NSError *error))block{
+    proTopic.isLoading = YES;
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/topic/%@/comment/%@/comments", projectId, proTopic.parent_id, proTopic.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"pageSize": @(99999)} withMethodType:Get andBlock:^(id data, NSError *error) {
+        proTopic.isLoading = NO;
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"讨论_答案_评论列表"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            ProjectTopics *resultT = [NSObject objectOfClass:@"ProjectTopics" fromJSON:resultData];
+            block(resultT, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_UpvoteAnswer:(ProjectTopic *)proTopic inProjectId:(NSNumber *)projectId andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/topic/%@/comment/%@/upvote", projectId, proTopic.parent_id, proTopic.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:proTopic.is_up_voted.boolValue? Delete: Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"讨论_答案_点赞"];
+            
+            [proTopic change_is_up_voted];
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+
+}
+- (void)request_DoComment_WithProjectTpoic:(ProjectTopic *)proTopic andAnswerId:(NSNumber *)answerId andBlock:(void (^)(id data, NSError *error))block{
+    NSMutableDictionary *params = @{@"content" : [proTopic.nextCommentStr aliasedString]}.mutableCopy;
+    params[@"type"] = answerId? @1: @0;
+    params[@"parent_id"] = answerId;
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[proTopic toDoCommentPath] withParams:params withMethodType:Post andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"讨论_评论_添加"];
 
@@ -1310,6 +2653,41 @@
             block(nil, error);
         }
     }];
+}
+
+- (void)request_ProjectTopicComment_Delete_WithObj:(ProjectTopic *)proTopic projectId:(NSNumber *)projectId andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/topic/%@/comment/%@", projectId, proTopic.topic_id, proTopic.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"讨论评论_删除"];
+            
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_ChangeWatcher:(User *)watcher ofTopic:(ProjectTopic *)proTopic andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/topic/%@/user/%@/watch", proTopic.id.stringValue, watcher.global_key];
+    User *hasWatcher = [proTopic hasWatcher:watcher];
+    NetworkMethod method = hasWatcher? Delete: Post;
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:method andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:method == Post? @"讨论_添加关注者": @"讨论_删除关注者"];
+            
+            if (!hasWatcher && watcher) {
+                [proTopic.watchers addObject:watcher];
+            }else if (hasWatcher){
+                [proTopic.watchers removeObject:hasWatcher];
+            }
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+
 }
 
 - (void)request_ProjectTopic_Count_WithPath:(NSString *)path
@@ -1351,18 +2729,23 @@
 #pragma mark - Project Tag
 - (void)request_TagListInProject:(Project *)project type:(ProjectTagType)type andBlock:(void (^)(id data, NSError *error))block{
     NSString *path = nil;
-    switch (type) {
-        case ProjectTagTypeTopic:
-            path = [NSString stringWithFormat:@"api/project/%@/topic/label?withCount=true", project.id.stringValue];
-            break;
+    NSDictionary *params = @{@"withCount": @(YES)};
+    if (kTarget_Enterprise) {
+        path = [NSString stringWithFormat:@"api/user/%@/project/%@/labels", [Login curLoginCompany].global_key, project.name];
+    }else{
+        switch (type) {
+            case ProjectTagTypeTopic:
+                path = [NSString stringWithFormat:@"api/project/%@/topic/label", project.id.stringValue];
+                break;
             case ProjectTagTypeTask:
-            path = [NSString stringWithFormat:@"api/user/%@/project/%@/task/label?withCount=true", project.owner_user_name, project.name];
-            break;
-        default:
-            return;
-            break;
+                path = [NSString stringWithFormat:@"api/user/%@/project/%@/task/label", project.owner_user_name, project.name];
+                break;
+            default:
+                return;
+                break;
+        }
     }
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_Get label:@"标签列表"];
 
@@ -1425,8 +2808,6 @@
         
         if (data) {
             [MobClick event:kUmeng_Event_Request_RootList label:@"冒泡_列表"];
-
-            [NSObject saveResponseData:data toPath:[tweets localResponsePath]];
             id resultData = [data valueForKeyPath:@"data"];
             NSArray *resultA = [NSObject arrayFromJSON:resultData ofObjects:@"Tweet"];
             block(resultA, nil);
@@ -1461,64 +2842,94 @@
     }];
 }
 - (void)request_Tweet_DoTweet_WithObj:(Tweet *)tweet andBlock:(void (^)(id data, NSError *error))block{
-    if (tweet.tweetImages && tweet.tweetImages.count > 0) {
-        /**
-         *  冒泡多张一起发送，不显示进度条
-         */
-        [NSObject showStatusBarQueryStr:@"正在发送冒泡"];
-        for (int i=0; i < tweet.tweetImages.count; i++) {
-            TweetImage *imageItem = [tweet.tweetImages objectAtIndex:i];
-            if (imageItem.uploadState == TweetImageUploadStateInit) {
-                imageItem.uploadState = TweetImageUploadStateIng;
-                [self uploadTweetImage:imageItem.image doneBlock:^(NSString *imagePath, NSError *error) {
-                    if (imagePath) {
-                        imageItem.uploadState = TweetImageUploadStateSuccess;
-                        imageItem.imageStr = [NSString stringWithFormat:@" ![图片](%@) ", imagePath];
-                    }else{
-                        [NSObject showStatusBarError:error];
-                        imageItem.uploadState = TweetImageUploadStateFail;
-                        imageItem.imageStr = [NSString stringWithFormat:@" ![图片]() "];
-                        block(nil, error);
-                        return ;
-                    }
-                    if ([tweet isAllImagesHaveDone]) {
-                        [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/tweet" withParams:[tweet toDoTweetParams] withMethodType:Post andBlock:^(id data, NSError *error) {
-                            if (data) {
-                                [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"冒泡_添加_有图"];
-
-                                id resultData = [data valueForKeyPath:@"data"];
-                                Tweet *tweet = [NSObject objectOfClass:@"Tweet" fromJSON:resultData];
-                                [NSObject showStatusBarSuccessStr:@"冒泡发送成功"];
-                                block(tweet, nil);
-                            }else{
-                                [NSObject showStatusBarError:error];
-                                block(nil, error);
-                            }
-                        }];
-                    }
-                } progerssBlock:^(CGFloat progressValue) {
-                    DebugLog(@"progressValue %d : %.2f", i, progressValue);
-                }];
-            }
-        }
-//        -----------------
-
-    }else{
-        [NSObject showStatusBarQueryStr:@"正在发送冒泡"];
+    //发送冒泡内容 block
+    void (^sendTweetBlock)() = ^{
         [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/tweet" withParams:[tweet toDoTweetParams] withMethodType:Post andBlock:^(id data, NSError *error) {
             if (data) {
-                [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"冒泡_添加_无图"];
-
+                [MobClick event:kUmeng_Event_Request_ActionOfServer label:tweet.tweetImages.count > 0? @"冒泡_添加_有图": @"冒泡_添加_无图"];
+                
                 id resultData = [data valueForKeyPath:@"data"];
-                Tweet *tweet = [NSObject objectOfClass:@"Tweet" fromJSON:resultData];
+                Tweet *result = [NSObject objectOfClass:@"Tweet" fromJSON:resultData];
                 [NSObject showStatusBarSuccessStr:@"冒泡发送成功"];
-                block(tweet, nil);
+                block(result, nil);
             }else{
                 [NSObject showStatusBarError:error];
                 block(nil, error);
             }
         }];
+    };
+    //开始发送
+    [NSObject showStatusBarQueryStr:@"正在发送冒泡"];
+    //无图片的冒泡，直接发送
+    if (tweet.tweetImages.count <= 0) {
+        sendTweetBlock();
+        return;
     }
+    //判断图片是否全部上传完毕，是的话就发送该冒泡 block
+    BOOL (^whetherAllImagesUploadedAndSendTweetBlock)() = ^{
+        if (tweet.isAllImagesDoneSucess) {
+            sendTweetBlock();
+        }
+        return tweet.isAllImagesDoneSucess;
+    };
+    //图片均已上传，直接发送
+    if (whetherAllImagesUploadedAndSendTweetBlock()) {
+        return;
+    }
+    //遍历上传图片
+    for (TweetImage *imageItem in tweet.tweetImages) {
+        if (imageItem.imageStr.length > 0) {
+            whetherAllImagesUploadedAndSendTweetBlock();
+        }else{
+            if (imageItem.uploadState != TweetImageUploadStateIng) {
+                imageItem.uploadState = TweetImageUploadStateIng;
+                [self uploadTweetImage:imageItem.image doneBlock:^(NSString *imagePath, NSError *error) {
+                    imageItem.uploadState = imagePath? TweetImageUploadStateSuccess: TweetImageUploadStateFail;
+                    if (!imagePath) {
+                        [NSObject showStatusBarError:error];
+                        block(nil, error);
+                    }else{
+                        imageItem.imageStr = [NSString stringWithFormat:@"![](%@)", imagePath];
+                        whetherAllImagesUploadedAndSendTweetBlock();
+                    }
+                } progerssBlock:^(CGFloat progressValue) {
+                    DebugLog(@"progressValue %@ : %.2f", imageItem.assetLocalIdentifier, progressValue);
+                }];
+            }
+        }
+    }
+}
+
+- (void)request_Tweet_DoProjectTweet_WithPro:(NSNumber *)pro_id content:(NSString *)content andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/tweet", pro_id.stringValue];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"content": content} withMethodType:Post andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"冒泡_添加_项目内冒泡"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            Tweet *result = [NSObject objectOfClass:@"Tweet" fromJSON:resultData];
+            block(result, nil);
+        }else{
+            [NSObject showStatusBarError:error];
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_Tweet_EditProjectTweet:(Tweet *)tweet content:(NSString *)content andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/project/%@/tweet/%@", tweet.project_id, tweet.id];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:@{@"raw": content} withMethodType:Put andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"冒泡_修改_项目内冒泡"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            Tweet *result = [NSObject objectOfClass:@"Tweet" fromJSON:resultData];
+            block(result, nil);
+        }else{
+            [NSObject showStatusBarError:error];
+            block(nil, error);
+        }
+    }];
 }
 
 - (void)request_Tweet_Likers_WithObj:(Tweet *)tweet andBlock:(void (^)(id data, NSError *error))block{
@@ -1532,6 +2943,20 @@
             resultData = [resultData valueForKeyPath:@"list"];
             NSArray *resultA = [NSObject arrayFromJSON:resultData ofObjects:@"User"];
             block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+- (void)request_Tweet_LikesAndRewards_WithObj:(Tweet *)tweet andBlock:(void (^)(id data, NSError *error))block{
+    tweet.isLoading = YES;
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[tweet toLikesAndRewardsPath] withParams:[tweet toLikesAndRewardsParams] withMethodType:Get andBlock:^(id data, NSError *error) {
+        tweet.isLoading = NO;
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"冒泡_赞赏的人_列表"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            block(resultData, nil);
         }else{
             block(nil, error);
         }
@@ -1581,7 +3006,7 @@
 }
 
 - (void)request_Tweet_Detail_WithObj:(Tweet *)tweet andBlock:(void (^)(id data, NSError *error))block{
-    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[tweet toDetailPath] withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[tweet toDetailPath] withParams:@{@"withRaw": @YES} withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_Get label:@"冒泡_详情"];
 
@@ -1594,13 +3019,15 @@
     }];
 }
 
-- (void)request_PublicTweetsWithTopic:(NSInteger)topicID andBlock:(void (^)(id data, NSError *error))block {
+- (void)request_PublicTweetsWithTopic:(NSInteger)topicID last_id:(NSNumber *)last_id andBlock:(void (^)(id data, NSError *error))block{
     //TODO psy lastid，是否要做分页
     NSString *path = [NSString stringWithFormat:@"api/public_tweets/topic/%ld",(long)topicID];
-    NSDictionary *params = @{
+    NSMutableDictionary *params = @{
                              @"type" : @"topic",
-                             @"sort" : @"new"
-                             };
+                             @"sort" : @"new",
+                             @"size" : @20,
+                             }.mutableCopy;
+    params[@"last_id"] = last_id;
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
             [MobClick event:kUmeng_Event_Request_Get label:@"话题_冒泡列表"];
@@ -1623,6 +3050,12 @@
             id resultData = [data valueForKeyPath:@"data"];
             User *user = [NSObject objectOfClass:@"User" fromJSON:resultData];
             if (user.id.intValue == [Login curLoginUser].id.intValue) {
+                if (user.vip.integerValue == 2) {
+                    User *loginU = [Login curLoginUser];
+                    if (loginU.vip.integerValue < 2) {
+                        [CodingVipTipManager showTip];
+                    }
+                }
                 [Login doLogin:resultData];
             }
             block(user, nil);
@@ -1663,6 +3096,11 @@
             //处理数据
             NSObject *resultA = nil;
             if ([path hasSuffix:@"stargazers"] || [path hasSuffix:@"watchers"]) {
+                resultA = [NSArray arrayFromJSON:resultData ofObjects:@"User"];
+            }else if ([path hasSuffix:@"members"]){//企业成员
+                if ([resultData isKindOfClass:[NSArray class]] && [(NSArray *)resultData count] > 0) {
+                    resultData = [resultData valueForKey:@"user"];
+                }
                 resultA = [NSArray arrayFromJSON:resultData ofObjects:@"User"];
             }else{
                 resultA = [NSObject objectOfClass:@"Users" fromJSON:resultData];
@@ -1720,6 +3158,12 @@
             id resultData = [data valueForKeyPath:@"data"];
             User *user = [NSObject objectOfClass:@"User" fromJSON:resultData];
             if (user) {
+                if (user.vip.integerValue == 2) {
+                    User *loginU = [Login curLoginUser];
+                    if (loginU.vip.integerValue < 2) {
+                        [CodingVipTipManager showTip];
+                    }
+                }
                 [Login doLogin:resultData];
             }
             block(user, nil);
@@ -1730,6 +3174,23 @@
     }];
 }
 
+- (void)request_GeneratePhoneCodeToResetPhone:(NSString *)phone phoneCountryCode:(NSString *)phoneCountryCode withCaptcha:(NSString *)captcha block:(void (^)(id data, NSError *error))block{
+    NSString *path = @"api/account/phone/change/code";
+    NSMutableDictionary *params = @{@"phone": phone,
+                                    @"phoneCountryCode": phoneCountryCode}.mutableCopy;
+    if (captcha.length > 0) {
+        params[@"j_captcha"] = captcha;
+    }
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post autoShowError:captcha.length > 0 andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"生成手机验证码_绑定手机号"];
+        }else if (captcha.length <= 0 && error && error.userInfo[@"msg"] && ![[error.userInfo[@"msg"] allKeys] containsObject:@"j_captcha_error"]) {
+            [NSObject showError:error];
+        }
+        block(data, error);
+    }];
+}
+
 - (void)request_PointRecords:(PointRecords *)records andBlock:(void (^)(id data, NSError *error))block{
     [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[records toPath] withParams:[records toParams] withMethodType:Get andBlock:^(id data, NSError *error) {
         if (data) {
@@ -1737,10 +3198,44 @@
 
             data = [data valueForKey:@"data"];
             PointRecords *resultA = [NSObject objectOfClass:@"PointRecords" fromJSON:data];
-            block(resultA, nil);
+            if (!records.points_left) {
+                [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/point/points" withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+                    if (data) {
+                        records.points_left = data[@"data"][@"points_left"];
+                    }
+                    block(resultA, nil);
+                }];
+            }else{
+                block(resultA, nil);
+            }
         }else{
             block(nil, error);
         }
+    }];
+}
+
+- (void)request_RewardToTweet:(NSString *)tweet_id encodedPassword:(NSString *)encodedPassword andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/tweet/%@/app_reward", tweet_id];
+    NSDictionary *params = encodedPassword.length > 0? @{@"encodedPassword": encodedPassword}: nil;
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Post autoShowError:NO andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"打赏成功"];
+        }else{
+            [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"打赏失败"];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)request_ServiceInfoBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/user/service_info" withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            data = [NSObject objectOfClass:@"UserServiceInfo" fromJSON:data[@"data"]];
+            
+            [MobClick event:kUmeng_Event_Request_Get label:@"我_查询项目和团队个数"];
+        }
+        block(data, error);
     }];
 }
 
@@ -2011,11 +3506,16 @@
                     if (data) {
                         [MobClick event:kUmeng_Event_Request_Get label:@"项目_README"];
 
-                        id resultData = [[data valueForKey:@"data"] valueForKey:@"readme"];
-                        CodeFile_RealFile *realFile = [NSObject objectOfClass:@"CodeFile_RealFile" fromJSON:resultData];
-                        CodeFile *rCodeFile = [CodeFile codeFileWithRef:defultBranch andPath:realFile.path];
-                        rCodeFile.file = realFile;
-                        block(rCodeFile, nil);
+                        id resultData = data[@"data"][@"readme"];
+                        if (resultData) {
+                            CodeFile *rCodeFile = [NSObject objectOfClass:@"CodeFile" fromJSON:data[@"data"]];
+                            CodeFile_RealFile *realFile = [NSObject objectOfClass:@"CodeFile_RealFile" fromJSON:resultData];
+                            rCodeFile.path = realFile.path;
+                            rCodeFile.file = realFile;
+                            block(rCodeFile, nil);
+                        }else{
+                            block(@"<p>该项目暂无 README.md ，我们推荐每个项目都新建一个 README.md 文件。（客户端暂不支持创建和编辑，请前往网站创建）<p>", nil);
+                        }
                     }else{
                         block(nil, error);
                     }
@@ -2023,7 +3523,7 @@
             }else{
                 [MobClick event:kUmeng_Event_Request_Get label:@"项目_README"];
 
-                block(@"我们推荐每个项目都新建一个README文件（客户端暂时不支持创建和编辑README）", nil);
+                block(@"<p>该项目暂无 README.md ，我们推荐每个项目都新建一个 README.md 文件。（客户端暂不支持创建和编辑，请前往网站创建）<p>", nil);
             }
         }else{
             block(@"加载失败...", errorTemp);
@@ -2073,7 +3573,8 @@
         done(nil, [NSError errorWithDomain:@"DATA EMPTY" code:0 userInfo:@{NSLocalizedDescriptionKey : @"有张照片没有读取成功"}]);
         return;
     }
-    [[CodingNetAPIClient sharedJsonClient] uploadImage:image path:@"api/tweet/insert_image" name:@"tweetImg" successBlock:^(AFHTTPRequestOperation *operation, id responseObject) {
+    NSString *path = [NSObject isPrivateCloud].boolValue? @"api/message/send_image": @"https://up.qbox.me/";
+    [[CodingNetAPIClient sharedJsonClient] uploadImage:image path:path name:@"file" successBlock:^(AFHTTPRequestOperation *operation, id responseObject) {
         NSString *reslutString = [responseObject objectForKey:@"data"];
         DebugLog(@"%@", reslutString);
         done(reslutString, nil);
@@ -2102,6 +3603,49 @@
         [NSObject showStatusBarSuccessStr:@"上传头像成功"];
         id resultData = [responseObject valueForKeyPath:@"data"];
         success(resultData);
+    } failureBlock:^(AFHTTPRequestOperation *operation, NSError *error) {
+        failure(error);
+        [NSObject showStatusBarError:error];
+    } progerssBlock:progress];
+}
+
+- (void)request_UpdateTeamIconImage:(UIImage *)image
+                       successBlock:(void (^)(id responseObj))success
+                       failureBlock:(void (^)(NSError *error))failure
+                      progerssBlock:(void (^)(CGFloat progressValue))progress{
+    if (!image) {
+        [NSObject showHudTipStr:@"读图失败"];
+        return;
+    }
+    [NSObject showStatusBarQueryStr:@"正在上传头像"];
+    CGSize maxSize = CGSizeMake(800, 800);
+    if (image.size.width > maxSize.width || image.size.height > maxSize.height) {
+        image = [image scaleToSize:maxSize usingMode:NYXResizeModeAspectFit];
+    }
+    [[CodingNetAPIClient sharedJsonClient] uploadImage:image path:@"api/user/avatar" name:@"file" successBlock:^(AFHTTPRequestOperation *operation, id responseObject) {
+        id resultData = [responseObject valueForKeyPath:@"data"];
+        if (resultData) {
+            NSString *path = [NSString stringWithFormat:@"api/team/%@/avatar", [NSObject baseCompany]];
+            NSDictionary *params = @{@"url": resultData,
+                                     };
+            [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Put andBlock:^(id data, NSError *error) {
+                if (data) {
+                    [MobClick event:kUmeng_Event_Request_ActionOfServer label:@"企业信息_更换头像"];
+                    
+                    [NSObject showStatusBarSuccessStr:@"上传头像成功"];
+                    Team *team = [NSObject objectOfClass:@"Team" fromJSON:data[@"data"]];
+                    if (team) {
+                        [Login doLoginCompany:data[@"data"]];
+                    }
+                    success(team);
+                }else{
+                    failure(error);
+                    [NSObject showStatusBarError:error];
+                }
+            }];
+        }else{
+            [NSObject showStatusBarErrorStr:@"上传失败"];
+        }
     } failureBlock:^(AFHTTPRequestOperation *operation, NSError *error) {
         failure(error);
         [NSObject showStatusBarError:error];
@@ -2172,6 +3716,22 @@
     }];
 }
 
+- (void)request_Users_activenessWithGlobalKey:(NSString *)globalKey andBlock:(void (^)(ActivenessModel *data, NSError *error))block {
+    NSString *path = [NSString stringWithFormat:@"api/user/activeness/data/%@",globalKey];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"用户活跃图"];
+            
+            id resultData = [data valueForKeyPath:@"data"];
+            ActivenessModel *resultA = [NSObject objectOfClass:@"ActivenessModel" fromJSON:resultData];
+            resultA.dailyActiveness = [NSObject arrayFromJSON:resultData[@"daily_activeness"] ofObjects:@"DailyActiveness"];
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
 - (void)request_MDHtmlStr_WithMDStr:(NSString *)mdStr inProject:(Project *)project andBlock:(void (^)(id data, NSError *error))block{
     NSString *path = @"api/markdown/previewNoAt";
     if (project.name && project.owner_user_name) {
@@ -2220,6 +3780,32 @@
         }else{
             block(VerifyTypeUnknow, error);
         }
+    }];
+}
+
+#pragma mark - 2FA
+- (void)post_Close2FAGeneratePhoneCode:(NSString *)phone withCaptcha:(NSString *)captcha block:(void (^)(id data, NSError *error))block{
+    NSMutableDictionary *params = @{@"phone": phone, @"from": @"mart"}.mutableCopy;
+    if (captcha.length > 0) {
+        params[@"j_captcha"] = captcha;
+    }
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/twofa/close/code" withParams:params withMethodType:Post autoShowError:captcha.length > 0 andBlock:^(id data, NSError *error) {
+        if (captcha.length <= 0 && error && error.userInfo[@"msg"] && ![[error.userInfo[@"msg"] allKeys] containsObject:@"j_captcha_error"]) {
+            [NSObject showError:error];
+        }
+        block(data, error);
+    }];
+}
+
+- (void)post_Close2FAWithPhone:(NSString *)phone code:(NSString *)code block:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/twofa/close" withParams:@{@"phone": phone, @"code": code} withMethodType:Post andBlock:^(id data, NSError *error) {
+        block(data, error);
+    }];
+}
+
+- (void)get_is2FAOpenBlock:(void (^)(BOOL data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/user/2fa/method" withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        block([data[@"data"] isEqualToString:@"totp"], error);
     }];
 }
 
@@ -2273,6 +3859,29 @@
         }];
 }
 
+- (void)request_DefautsHotTopicNamelistWithBlock:(void (^)(id data, NSError *error))block {
+    NSString *defaultsPath = @"api/tweet/pop";
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:defaultsPath withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            NSMutableArray *resultList = [[data[@"data"][@"default_topics"] valueForKey:@"name"] mutableCopy];
+            NSString *hotPath = @"/api/tweet_topic/hot";
+            [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:hotPath withParams:nil withMethodType:Get andBlock:^(id dataHot, NSError *errorHot) {
+                if (dataHot) {
+                    [MobClick event:kUmeng_Event_Request_Get label:@"话题_热门话题_榜单"];
+                    NSMutableArray *hotList = [[dataHot[@"data"] valueForKey:@"name"] mutableCopy];
+                    [hotList removeObjectsInArray:resultList];//剔除重复元素
+                    [resultList addObjectsFromArray:hotList];//将 hot 追加到 defaults 末尾
+                    block(resultList, nil);
+                }else{
+                    block(nil, errorHot);
+                }
+            }];
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
 - (void)request_Tweet_WithSearchString:(NSString *)strSearch andPage:(NSInteger)page andBlock:(void (^)(id data, NSError *error))block {
 
     NSString *path = [NSString stringWithFormat:@"/api/search/quick?q=%@&page=%d", strSearch, (int)page];
@@ -2288,8 +3897,33 @@
             block(nil, error);
         }
     }];
-
 }
+
+- (void)requestWithSearchString:(NSString *)strSearch typeStr:(NSString*)type andPage:(NSInteger)page andBlock:(void (^)(id data, NSError *error))block {
+    
+    NSString *path = [NSString stringWithFormat:@"/api/esearch/%@?q=%@&page=%d",type,strSearch, (int)page];
+    if ([type isEqualToString:@"all"]) {
+//        path=[NSString stringWithFormat:@"%@&types=projects,project_topics,tasks,tweets,files,friends,merge_requests,pull_requests",path];
+        path=[NSString stringWithFormat:@"%@&types=projects,tasks,tweets,files,friends,merge_requests",path];
+    }else if ([type isEqualToString:@"public_project"]) {
+        path=[NSString stringWithFormat:@"/api/esearch/project?q=%@  related:false&page=%d",strSearch,(int)page];
+    }
+    
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        
+        if(data) {
+            [MobClick event:kUmeng_Event_Request_Get label:@"全局_搜索"];
+            
+//            id resultData = [(NSDictionary *)[data valueForKey:@"data"] objectForKey:@"tweets"];
+            id resultData = [data valueForKey:@"data"];
+            block(resultData, nil);
+        }else {
+            
+            block(nil, error);
+        }
+    }];
+}
+
 
 - (void)request_TopicDetailsWithTopicID:(NSInteger)topicID block:(void (^)(id data, NSError *error))block {
     NSString *path = [NSString stringWithFormat:@"/api/tweet_topic/%ld",(long)topicID];
@@ -2380,6 +4014,133 @@
         }else{
             block(nil, error);
         }
+    }];
+}
+
+#pragma mark-
+#pragma mark---------------------- shop ---------------------------
+
+
+- (void)request_shop_bannersWithBlock:(void (^)(id data, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"/api/gifts/sliders" withParams:nil withMethodType:Get autoShowError:NO andBlock:^(id data, NSError *error) {
+        if (data) {
+            data = [data valueForKey:@"data"];
+            NSArray *resultA = [NSArray arrayFromJSON:data ofObjects:@"ShopBanner"];
+            
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_shop_userPointWithShop:(Shop *)_shop andBlock:(void (^)(id data, NSError *error))block
+{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/account/points" withParams:nil withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+             data = [data valueForKey:@"data"];
+            _shop.points_left = [data objectForKey:@"points_left"];
+            _shop.points_total = [data objectForKey:@"points_total"];
+            block(data, nil);
+        }else
+            block(nil, error);
+    }];
+}
+
+
+- (void)request_shop_giftsWithShop:(Shop *)_shop andBlock:(void (^)(id data, NSError *error))block
+{
+    NSDictionary *parsms = @{@"page":_shop.page , @"pageSize":_shop.pageSize};
+    _shop.isLoading = YES;
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[_shop toGiftsPath] withParams:parsms withMethodType:Get autoShowError:NO andBlock:^(id data, NSError *error) {
+        _shop.isLoading = NO;
+        if (data) {
+            data = [[data valueForKey:@"data"] valueForKey:@"list"];
+            NSArray *resultA = [NSArray arrayFromJSON:data ofObjects:@"ShopGoods"];
+            [_shop configWithGiftGoods:resultA];
+            
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_shop_OrderListWithOrder:(ShopOrderModel *)_order andBlock:(void (^)(id data, NSError *error))block
+{
+    NSDictionary *parsms = @{@"page":_order.page , @"pageSize":_order.pageSize};
+    _order.isLoading = YES;
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:[_order toPath] withParams:parsms withMethodType:Get autoShowError:NO andBlock:^(id data, NSError *error) {
+        _order.isLoading = NO;
+        data = [data valueForKey:@"data"];
+        if (data) {
+            data = [data valueForKey:@"list"];
+            NSArray *resultA = [NSArray arrayFromJSON:data ofObjects:@"ShopOrder"];
+            [_order configOrderWithReson:resultA];
+            block(resultA, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_shop_check_passwordWithpwd:(NSString *)pwd andBlock:(void (^)(id data, NSError *error))block
+{
+    if ([pwd isEmpty]) {
+        return;
+    }
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/account/check_password" withParams:@{@"password":[pwd sha1Str]} withMethodType:Post andBlock:^(id data, NSError *error) {
+        NSNumber *code = [data valueForKey:@"code"];
+        if (!error && code.intValue == 0) {
+            block(code, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+///
+
+- (void)request_shop_exchangeWithParms:(NSDictionary *)parms andBlock:(void (^)(id data, NSError *error))block
+{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/gifts/exchange" withParams:parms withMethodType:Post andBlock:^(id data, NSError *error) {
+        data = [data valueForKey:@"data"];
+        if (data) {
+            block(data, nil);
+        }else{
+            block(nil, error);
+        }
+    }];
+}
+
+- (void)request_shop_orderWithParms:(NSDictionary *)parms andBlock:(void (^)(ShopOrder *shopOrder, NSError *error))block{
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:@"api/gifts/orders" withParams:parms withMethodType:Post andBlock:^(id data, NSError *error) {
+        block([NSObject objectOfClass:@"ShopOrder" fromJSON:data[@"data"]], error);
+    }];
+}
+
+- (void)request_shop_payOrder:(NSString *)orderId method:(NSString *)method andBlock:(void (^)(NSDictionary *payDict, NSError *error))block{
+    NSDictionary *parms = @{@"pay_method": method};
+    NSString *path = [NSString stringWithFormat:@"api/gifts/pay/%@", orderId];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:parms withMethodType:Post andBlock:^(id data, NSError *error) {
+        block(data[@"data"], error);
+    }];
+}
+
+
+- (void)request_shop_deleteOrder:(NSString *)orderId andBlock:(void (^)(id data, NSError *error))block{
+    NSString *path = [NSString stringWithFormat:@"api/gifts/orders/%@", orderId];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:nil withMethodType:Delete andBlock:^(id data, NSError *error) {
+        block(data, error);
+    }];
+}
+
+- (void)request_LocationListWithParams:(NSDictionary *)params block:(void (^)(id data, NSError *error))block{
+    NSString *path  = @"api/region";
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:path withParams:params withMethodType:Get andBlock:^(id data, NSError *error) {
+        if (data) {
+            data = data[@"data"];
+        }
+        block(data, error);
     }];
 }
 @end

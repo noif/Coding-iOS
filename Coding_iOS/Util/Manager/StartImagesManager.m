@@ -11,7 +11,9 @@
 
 #import "StartImagesManager.h"
 #import "CodingNetAPIClient.h"
-
+#import "Login.h"
+#import "FunctionTipsManager.h"
+#import "WebViewController.h"
 
 @interface StartImagesManager ()
 @property (strong, nonatomic) NSMutableArray *imageLoadedArray;
@@ -83,6 +85,29 @@
     }
     return _startImage;
 }
+- (void)handleStartLink{
+    if (![Login isLogin] || [Login curLoginUser].global_key.length <= 0) {
+        return;
+    }
+    NSString *link = self.curImage.group.link;
+    if (![link hasPrefix:[NSObject baseURLStr]]) {
+        return;
+    }
+    NSString *global_key = [Login curLoginUser].global_key;
+    NSString *tipKey = [NSString stringWithFormat:@"%@_%@_%@", kFunctionTipStr_StartLinkPrefix, global_key, link];
+    if (![[FunctionTipsManager shareManager] needToTip:tipKey]) {
+        return;
+    }
+    UINavigationController *curNav = [BaseViewController presentingVC].navigationController;
+    if (!curNav) {
+        return;
+    }
+    [[FunctionTipsManager shareManager] markTiped:tipKey];//标记已处理
+    WebViewController *vc = [WebViewController webVCWithUrlStr:link];
+    if (vc) {
+        [curNav pushViewController:vc animated:YES];
+    }
+}
 
 - (NSString *)pathOfSTPlist{
     return [[self downloadPath] stringByAppendingPathComponent:@"STARTIMAGE.plist"];
@@ -119,23 +144,28 @@
 }
 
 - (void)refreshImagesPlist{
+    [self refreshImagesBlock:nil];
+}
+
+- (void)refreshImagesBlock:(void(^)(NSArray<StartImage *> *images, NSError *error))bk{
     NSString *aPath = @"api/wallpaper/wallpapers";
     NSDictionary *params = @{@"type" : @"3"};
-    [[CodingNetAPIClient sharedJsonClient] GET:aPath parameters:params success:^(AFHTTPRequestOperation *operation, id responseObject) {
-        DebugLog(@"\n===========response===========\n%@:\n%@", aPath, responseObject);
-        id error = [self handleResponse:responseObject];
+    [[CodingNetAPIClient sharedJsonClient] requestJsonDataWithPath:aPath withParams:params withMethodType:Get autoShowError:NO andBlock:^(id data, NSError *error) {
+        NSArray *resultA = nil;
         if (!error) {
-            NSArray *resultA = [responseObject valueForKey:@"data"];
+            resultA = data[@"data"];
             if ([self createFolder:[self downloadPath]]) {
                 if ([resultA writeToFile:[self pathOfSTPlist] atomically:YES]) {
                     [[StartImagesManager shareManager] startDownloadImages];
                 }
             }
         }
-    } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-        DebugLog(@"\n===========response===========\n%@:\n%@", aPath, error);
+        if (bk) {
+            bk([NSObject arrayFromJSON:resultA ofObjects:@"StartImage"], error);
+        }
     }];
 }
+
 
 - (void)startDownloadImages{
     

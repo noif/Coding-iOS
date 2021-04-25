@@ -46,7 +46,7 @@
     [super viewDidLoad];
     // Do any additional setup after loading the view.
     self.title = self.fileName;
-    [self.navigationItem setRightBarButtonItem:[[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"moreBtn_Nav"] style:UIBarButtonItemStylePlain target:self action:@selector(rightNavBtnClicked)] animated:NO];
+    [self.navigationItem setRightBarButtonItem:[[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"share_Nav"] style:UIBarButtonItemStylePlain target:self action:@selector(rightNavBtnClicked)] animated:NO];
 
     if ([self.fileType isEqualToString:@"md"]
         || [self.fileType isEqualToString:@"html"]
@@ -94,6 +94,7 @@
         NSString *mdStr = [NSString stringWithContentsOfURL:fileUrl encoding:NSUTF8StringEncoding error:nil];
         [self.activityIndicator startAnimating];
         [[Coding_NetAPIManager sharedManager] request_MDHtmlStr_WithMDStr:mdStr inProject:nil andBlock:^(id data, NSError *error) {
+            [self.activityIndicator stopAnimating];
             NSString *htmlStr;
             htmlStr = data? data: @"加载失败";
             NSString *contentStr = [WebContentManager markdownPatternedWithContent:htmlStr];
@@ -118,6 +119,10 @@
         QLPreviewController* preview = [[QLPreviewController alloc] init];
         preview.dataSource = self;
         preview.delegate = self;
+        if ([[[UIDevice currentDevice] systemVersion] compare:@"10.0" options:NSNumericSearch] != NSOrderedAscending) {
+            [self addChildViewController:preview];
+            [preview didMoveToParentViewController:self];
+        }
         [self.view addSubview:preview.view];
         [preview.view mas_makeConstraints:^(MASConstraintMaker *make) {
             make.top.left.right.bottom.equalTo(self.view);

@@ -11,6 +11,9 @@
 #import "NJKWebViewProgressView.h"
 #import "BaseViewController.h"
 #import "CodingShareView.h"
+#import "RootTabViewController.h"
+#import <RegexKitLite-NoWarning/RegexKitLite.h>
+
 
 @interface WebViewController ()<UIWebViewDelegate>
 @property (strong, nonatomic) NJKWebViewProgress *progressProxy;
@@ -24,6 +27,16 @@
         return nil;
     }
     
+//    NSString *tasksRegexStr = @"/user/tasks[\?]?";
+    NSString *tasksRegexStr = @"/user/tasks";
+    if ([curUrlStr captureComponentsMatchedByRegex:tasksRegexStr].count > 0){
+        if ([kKeyWindow.rootViewController isKindOfClass:[RootTabViewController class]]) {
+            RootTabViewController *vc = (RootTabViewController *)kKeyWindow.rootViewController;
+            vc.selectedIndex = 1;
+            return nil;
+        }
+    }
+
     NSString *proName = [NSString stringWithFormat:@"/%@.app/", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleName"]];
     NSURL *curUrl;
     if (![curUrlStr hasPrefix:@"/"] || [curUrlStr rangeOfString:proName].location != NSNotFound) {
@@ -55,7 +68,7 @@
     @weakify(self);
     _progressProxy.progressBlock = ^(float progress) {
         @strongify(self);
-        [self.progressView setProgress:progress animated:NO];
+        [self.progressView setProgress:progress animated:YES];
     };
     
     CGFloat progressBarHeight = 2.f;
@@ -63,9 +76,11 @@
     CGRect barFrame = CGRectMake(0, navigaitonBarBounds.size.height - progressBarHeight, navigaitonBarBounds.size.width, progressBarHeight);
     _progressView = [[NJKWebViewProgressView alloc] initWithFrame:barFrame];
     _progressView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-    _progressView.progressBarView.backgroundColor = [UIColor colorWithHexString:@"0x3abd79"];
-    
-    [self.navigationItem setRightBarButtonItem:[[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"moreBtn_Nav"] style:UIBarButtonItemStylePlain target:self action:@selector(shareItemClicked)] animated:YES];
+    _progressView.progressBarView.backgroundColor = kColorLightBlue;
+
+    if (!kTarget_Enterprise) {//企业版不支持分享
+        [self.navigationItem setRightBarButtonItem:[[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"moreBtn_Nav"] style:UIBarButtonItemStylePlain target:self action:@selector(shareItemClicked)] animated:YES];
+    }
 }
 
 - (void)viewWillAppear:(BOOL)animated{

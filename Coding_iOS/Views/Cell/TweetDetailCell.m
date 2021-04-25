@@ -11,11 +11,12 @@
 #define kTweetDetailCell_LikeComment_Height 27.0
 #define kTweetDetailCell_LikeComment_Width 50.0
 #define kTweetDetailCell_ContentWidth (kScreen_Width - 2*kPaddingLeftWidth)
-#define kTweetDetailCell_PadingTop 55.0
+#define kTweetDetailCell_PadingTop 70.0
 #define kTweetDetailCell_PadingBottom 10.0
 #define kTweetDetailCell_LikeUserCCell_Height 25.0
-#define kTweetDetailCell_LikeUserCCell_Pading 10.0
-#define kTweetDetailCell_LikeNumMax (kDevice_Is_iPhone6Plus? 12: kDevice_Is_iPhone6? 11: 9)
+#define kTweetDetailCell_LikeUserCCell_Pading 5.0
+
+#define kTweetDetailCell_MaxCollectionNum (kDevice_Is_iPhone6Plus? 11: kDevice_Is_iPhone6? 10: 9)
 
 
 
@@ -26,12 +27,16 @@
 #import "WebContentManager.h"
 #import "CodingShareView.h"
 #import "TweetSendLocationDetailViewController.h"
+#import "SendRewardManager.h"
 
 @interface TweetDetailCell ()
+@property (strong, nonatomic) NSArray *like_reward_users;
+
 @property (strong, nonatomic) UITapImageView *ownerImgView;
+@property (strong, nonatomic) UIImageView *vipV;
 @property (strong, nonatomic) UIButton *ownerNameBtn;
 @property (strong, nonatomic) UILabel *timeLabel, *fromLabel;
-@property (strong, nonatomic) UIButton *likeBtn, *commentBtn, *deleteBtn, *shareBtn;
+@property (strong, nonatomic) UIButton *likeBtn, *commentBtn, *deleteBtn, *rewardBtn;
 @property (strong, nonatomic) UIButton *locaitonBtn;
 @property (strong, nonatomic) UICustomCollectionView *likeUsersView;
 @property (strong, nonatomic) UIImageView *timeClockIconView, *fromPhoneIconView;
@@ -48,16 +53,15 @@
     if (self) {
         // Initialization code
         self.selectionStyle = UITableViewCellSelectionStyleNone;
-        self.backgroundColor = [UIColor clearColor];
         //        self.backgroundColor = [UIColor colorWithHexString:@"0xf3f3f3"];
         if (!self.ownerImgView) {
-            self.ownerImgView = [[UITapImageView alloc] initWithFrame:CGRectMake(kPaddingLeftWidth, 10, 38, 38)];
+            self.ownerImgView = [[UITapImageView alloc] initWithFrame:CGRectMake(kPaddingLeftWidth, 10, 45, 45)];
             [self.ownerImgView doCircleFrame];
             [self.contentView addSubview:self.ownerImgView];
         }
         if (!self.ownerNameBtn) {
             self.ownerNameBtn = [UIButton buttonWithUserStyle];
-            self.ownerNameBtn.frame = CGRectMake(kTweetDetailCell_PadingLeft, CGRectGetMinY(self.ownerImgView.frame), kScreen_Width/2, 20);
+            self.ownerNameBtn.frame = CGRectMake(CGRectGetMaxX(_ownerImgView.frame) + 15, CGRectGetMinY(self.ownerImgView.frame), kScreen_Width/2, 24);
             [self.ownerNameBtn addTarget:self action:@selector(userBtnClicked) forControlEvents:UIControlEventTouchUpInside];
             [self.contentView addSubview:self.ownerNameBtn];
         }
@@ -67,34 +71,38 @@
 //            [self.contentView addSubview:self.timeClockIconView];
 //        }
         if (!self.timeLabel) {
-            self.timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(CGRectGetMinX(self.ownerNameBtn.frame), CGRectGetMaxY(self.ownerImgView.frame) - 12, kScreen_Width/2, 12)];
+            self.timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(CGRectGetMinX(self.ownerNameBtn.frame), CGRectGetMaxY(self.ownerImgView.frame) - 17, kScreen_Width/2, 17)];
 //            self.timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(kScreen_Width - kPaddingLeftWidth - 70, 18, 70, 12)];
             self.timeLabel.font = kTweet_TimtFont;
 //            self.timeLabel.textAlignment = NSTextAlignmentRight;
-            self.timeLabel.textColor = [UIColor colorWithHexString:@"0x999999"];
+            self.timeLabel.textColor = kColorDark7;
             [self.contentView addSubview:self.timeLabel];
         }
 
-        if (!self.shareBtn) {
-            self.shareBtn = [UIButton tweetBtnWithFrame:CGRectMake(kPaddingLeftWidth, 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height) image:@"tweet_btn_share"];
-            [self.shareBtn addTarget:self action:@selector(shareBtnClicked:) forControlEvents:UIControlEventTouchUpInside];
-            [self.contentView addSubview:self.shareBtn];
-        }
-        if (!self.commentBtn) {
-            self.commentBtn = [UIButton tweetBtnWithFrame:CGRectMake(kScreen_Width - kPaddingLeftWidth- kTweetDetailCell_LikeComment_Width, 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height) image:@"tweet_btn_comment"];
-            [self.commentBtn addTarget:self action:@selector(commentBtnClicked:) forControlEvents:UIControlEventTouchUpInside];
-            [self.contentView addSubview:self.commentBtn];
-        }
         if (!self.likeBtn) {
-            self.likeBtn = [UIButton tweetBtnWithFrame:CGRectMake(kScreen_Width - kPaddingLeftWidth- 2*kTweetDetailCell_LikeComment_Width- 5 , 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height) image:nil];
+            CGRect frame = CGRectMake(kPaddingLeftWidth, 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height);
+            self.likeBtn = [UIButton tweetBtnWithFrame:frame alignmentLeft:YES];
             [self.likeBtn addTarget:self action:@selector(likeBtnClicked:) forControlEvents:UIControlEventTouchUpInside];
             [self.contentView addSubview:self.likeBtn];
         }
+        if (!self.rewardBtn) {
+            CGRect frame = CGRectMake(kPaddingLeftWidth + kTweetDetailCell_LikeComment_Width + 5, 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height);
+            self.rewardBtn = [UIButton tweetBtnWithFrame:frame alignmentLeft:YES];
+            [self.rewardBtn addTarget:self action:@selector(rewardBtnClicked:) forControlEvents:UIControlEventTouchUpInside];
+            [self.contentView addSubview:self.rewardBtn];
+        }
+        if (!self.commentBtn) {
+            CGRect frame = CGRectMake(kScreen_Width - kPaddingLeftWidth- kTweetDetailCell_LikeComment_Width, 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height);
+            self.commentBtn = [UIButton tweetBtnWithFrame:frame alignmentLeft:NO];
+            [self.commentBtn setImage:[UIImage imageNamed:@"tweet_btn_comment"] forState:UIControlStateNormal];
+            [self.commentBtn addTarget:self action:@selector(commentBtnClicked:) forControlEvents:UIControlEventTouchUpInside];
+            [self.contentView addSubview:self.commentBtn];
+        }
         if (!self.deleteBtn) {
             self.deleteBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-            self.deleteBtn.frame = CGRectMake(kScreen_Width - kPaddingLeftWidth- 3*kTweetDetailCell_LikeComment_Width- 5 , 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height);
+            self.deleteBtn.frame = CGRectMake(kScreen_Width - kPaddingLeftWidth- 2*kTweetDetailCell_LikeComment_Width- 5 , 0, kTweetDetailCell_LikeComment_Width, kTweetDetailCell_LikeComment_Height);
             [self.deleteBtn setTitle:@"删除" forState:UIControlStateNormal];
-            [self.deleteBtn setTitleColor:[UIColor colorWithHexString:@"0x3bbd79"] forState:UIControlStateNormal];
+            [self.deleteBtn setTitleColor:kColorBrandBlue forState:UIControlStateNormal];
             [self.deleteBtn setTitleColor:[UIColor darkGrayColor] forState:UIControlStateHighlighted];
             self.deleteBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
             [self.deleteBtn addTarget:self action:@selector(deleteBtnClicked:) forControlEvents:UIControlEventTouchUpInside];
@@ -109,19 +117,19 @@
             self.locaitonBtn.frame = CGRectMake(kPaddingLeftWidth, 0,
                                                 (kScreen_Width - 2*kPaddingLeftWidth), 15);
             self.locaitonBtn.titleLabel.font = [UIFont boldSystemFontOfSize:12];
-            [self.locaitonBtn setTitleColor:[UIColor colorWithHexString:@"0x3bbd79"] forState:UIControlStateNormal];
+            [self.locaitonBtn setTitleColor:kColorBrandBlue forState:UIControlStateNormal];
             [self.locaitonBtn addTarget:self action:@selector(locationBtnClicked:) forControlEvents:UIControlEventTouchUpInside];
             [self.contentView addSubview:self.locaitonBtn];
         }
         if (!self.fromPhoneIconView) {
-            self.fromPhoneIconView = [[UIImageView alloc] initWithFrame:CGRectMake(kPaddingLeftWidth, 0, 15, 15)];
+            self.fromPhoneIconView = [[UIImageView alloc] initWithFrame:CGRectMake(kPaddingLeftWidth, 0, 12, 12)];
             self.fromPhoneIconView.image = [UIImage imageNamed:@"little_phone_icon"];
             [self.contentView addSubview:self.fromPhoneIconView];
         }
         if (!self.fromLabel) {
             self.fromLabel = [[UILabel alloc] initWithFrame:CGRectMake(CGRectGetMaxX(self.fromPhoneIconView.frame) + 5, 0, kScreen_Width/2, 15)];
             self.fromLabel.font = kTweet_TimtFont;
-            self.fromLabel.textColor = [UIColor colorWithHexString:@"0x999999"];
+            self.fromLabel.textColor = kColorDark7;
             [self.contentView addSubview:self.fromLabel];
         }
         if (!self.likeUsersView) {
@@ -133,7 +141,7 @@
             [self.likeUsersView registerClass:[TweetLikeUserCCell class] forCellWithReuseIdentifier:kCCellIdentifier_TweetLikeUser];
             self.likeUsersView.dataSource = self;
             self.likeUsersView.delegate = self;
-//            [self.likeUsersView addLineUp:YES andDown:NO andColor:[UIColor colorWithHexString:@"0xdddddd"]];
+//            [self.likeUsersView addLineUp:YES andDown:NO andColor:kColorDDD];
             [self.contentView addSubview:self.likeUsersView];
         }
         if (!self.webContentView) {
@@ -154,36 +162,36 @@
             [_activityIndicator setCenter:CGPointMake(CGRectGetMidX(self.webContentView.frame), kTweetDetailCell_PadingTop+CGRectGetHeight(_activityIndicator.bounds)/2)];
             [self.contentView addSubview:_activityIndicator];
         }
-
+        if (!_vipV) {
+            _vipV = [UIImageView new];
+            [self.contentView addSubview:_vipV];
+            [_vipV mas_makeConstraints:^(MASConstraintMaker *make) {
+                make.right.bottom.equalTo(_ownerImgView);
+            }];
+        }
     }
     return self;
 }
 
-- (void)awakeFromNib
-{
-    // Initialization code
-}
-
-- (void)setSelected:(BOOL)selected animated:(BOOL)animated
-{
-    [super setSelected:selected animated:animated];
-
-    // Configure the view for the selected state
-}
-
 - (void)setTweet:(Tweet *)tweet{
-    if (tweet) {
-        _tweet = tweet;
+    _tweet = tweet;
+    _like_reward_users = [_tweet like_reward_users];
+
+    if (!_tweet) {
+        return;
     }
-    BOOL isProjectTweet = _tweet.project_id != nil;
-    self.likeBtn.hidden = isProjectTweet;
-    self.shareBtn.hidden = isProjectTweet;
     
+    self.likeBtn.hidden = self.rewardBtn.hidden = self.commentBtn.hidden = [_tweet isProjectTweet];
+
     //owner头像
     __weak __typeof(self)weakSelf = self;
     [self.ownerImgView setImageWithUrl:[_tweet.owner.avatar urlImageWithCodePathResizeToView:_ownerImgView] placeholderImage:kPlaceholderMonkeyRoundView(_ownerImgView) tapBlock:^(id obj) {
         [weakSelf userBtnClicked];
     }];
+
+    _vipV.image = [UIImage imageNamed:[NSString stringWithFormat:@"vip_%@_45", _tweet.owner.vip]];
+    _vipV.hidden = kTarget_Enterprise;
+
     //owner姓名
 //    [self.ownerNameBtn setUserTitle:_tweet.owner.name];
     [self.ownerNameBtn setUserTitle:_tweet.owner.name font:self.ownerNameBtn.titleLabel.font maxWidth:(kScreen_Width- kTweetDetailCell_PadingLeft - 85)];
@@ -227,14 +235,17 @@
     
     //喜欢&评论 按钮
     curBottomY += 5;
+    self.likeBtn.y = self.rewardBtn.y = self.commentBtn.y = curBottomY;
     [self.likeBtn setImage:[UIImage imageNamed:(_tweet.liked.boolValue? @"tweet_btn_liked":@"tweet_btn_like")] forState:UIControlStateNormal];
-    [self.likeBtn setY:curBottomY];
-    [self.commentBtn setY:curBottomY];
-    [self.shareBtn setY:curBottomY];
+    [self.likeBtn setTitle:_tweet.likes.stringValue forState:UIControlStateNormal];
+    [self.rewardBtn setImage:[UIImage imageNamed:(_tweet.rewarded.boolValue? @"tweet_btn_rewarded": @"tweet_btn_reward")] forState:UIControlStateNormal];
+    [self.rewardBtn setTitle:_tweet.rewards.stringValue forState:UIControlStateNormal];
+    [self.commentBtn setTitle:_tweet.comments.stringValue forState:UIControlStateNormal];
 
-    BOOL isMineTweet = [_tweet.owner.global_key isEqualToString:[Login curLoginUser].global_key];
+    BOOL isMineTweet = [_tweet.owner.global_key isEqualToString:[Login curLoginUser].global_key] || _tweet.project.current_user_role_id.integerValue >= 90;
     if (isMineTweet) {
-        [self.deleteBtn setY:curBottomY];
+        CGFloat deleteBtnX = kScreen_Width - kPaddingLeftWidth - kTweetDetailCell_LikeComment_Width - ([_tweet isProjectTweet]? 0: kTweetDetailCell_LikeComment_Width + 5);
+        [self.deleteBtn setOrigin:CGPointMake(deleteBtnX, curBottomY)];
         self.deleteBtn.hidden = NO;
     }else{
         self.deleteBtn.hidden = YES;
@@ -247,7 +258,7 @@
     
     //点赞的人_列表
     //    可有可无
-    if (_tweet.likes.intValue > 0) {
+    if ([_tweet hasLikesOrRewards]) {
         CGFloat likeUsersHeight = [[self class] likeUsersHeightWithTweet:_tweet];
         [self.likeUsersView setFrame:CGRectMake(0, curBottomY, kScreen_Width, likeUsersHeight)];
         [self.likeUsersView reloadData];
@@ -268,7 +279,13 @@
         cellHeight += kTweetDetailCell_PadingTop;
         cellHeight += [[self class] contentHeightWithTweet:tweet];
         cellHeight += 10;
-        cellHeight += 5 + kTweetDetailCell_LikeComment_Height;
+        if (tweet.isProjectTweet) {
+            if ([tweet.owner.global_key isEqualToString:[Login curLoginUser].global_key] || tweet.project.current_user_role_id.integerValue >= 90) {
+                cellHeight += 5 + kTweetDetailCell_LikeComment_Height;
+            }
+        }else{
+            cellHeight += 5 + kTweetDetailCell_LikeComment_Height;
+        }
         cellHeight += [[self class] locationAndDeviceHeightWithTweet:tweet];
         cellHeight += [[self class] likeCommentBtn_BottomPadingWithTweet:tweet];
         cellHeight += [[self class] likeUsersHeightWithTweet:tweet];
@@ -283,7 +300,7 @@
 
 + (CGFloat)likeCommentBtn_BottomPadingWithTweet:(Tweet *)tweet{
     if (tweet &&
-        (tweet.likes.intValue > 0)){
+        ([tweet hasLikesOrRewards])){
             return 5.0;
         }else{
             return 0;
@@ -291,8 +308,8 @@
 }
 + (CGFloat)likeUsersHeightWithTweet:(Tweet *)tweet{
     CGFloat likeUsersHeight = 0;
-    if (tweet.likes.intValue > 0) {
-        likeUsersHeight = 35;
+    if ([tweet hasLikesOrRewards]) {
+        likeUsersHeight = [TweetLikeUserCCell ccellSize].height + 15 + 5;
         //        +30*(ceilf([tweet.like_users count]/kTweet_LikeUsersLineCount)-1);
     }
     return likeUsersHeight;
@@ -330,7 +347,7 @@
 - (void)webViewDidFinishLoad:(UIWebView *)webView{
     [self refreshwebContentView];
     [_activityIndicator stopAnimating];
-    CGFloat scrollHeight = webView.scrollView.contentSize.height;
+    CGFloat scrollHeight = MAX(webView.scrollView.contentSize.height, _tweet.contentHeight);
     if (ABS(scrollHeight - _tweet.contentHeight) > 5) {
         webView.scalesPageToFit = YES;
         _tweet.contentHeight = scrollHeight;
@@ -366,8 +383,8 @@
     BOOL preLiked = _tweet.liked.boolValue;
     //重新加载likes
     [_tweet changeToLiked:[NSNumber numberWithBool:!preLiked]];
-    if (_likeBtnClickedBlock) {
-        _likeBtnClickedBlock(_tweet);
+    if (_cellRefreshBlock) {
+        _cellRefreshBlock();
     }
     //开始动画
     if (preLiked) {
@@ -379,8 +396,8 @@
     [[Coding_NetAPIManager sharedManager] request_Tweet_DoLike_WithObj:_tweet andBlock:^(id data, NSError *error) {
         if (!data) {//如果请求失败，就再改回来
             [_tweet changeToLiked:[NSNumber numberWithBool:preLiked]];
-            if (_likeBtnClickedBlock) {
-                _likeBtnClickedBlock(_tweet);
+            if (_cellRefreshBlock) {
+                _cellRefreshBlock();
             }
             [self.likeBtn setImage:[UIImage imageNamed:preLiked? @"tweet_btn_liked" : @"tweet_btn_like"] forState:UIControlStateNormal];
         }
@@ -407,47 +424,41 @@
     }
 }
 
-- (void)shareBtnClicked:(id)sender{
-    [CodingShareView showShareViewWithObj:_tweet];
+- (void)rewardBtnClicked:(id)sender{
+    @weakify(self);
+    [SendRewardManager handleTweet:_tweet completion:^(Tweet *curTweet, BOOL sendSucess) {
+        @strongify(self);
+        if (self.cellRefreshBlock) {
+            self.cellRefreshBlock();
+        }
+    }];
 }
 
 #pragma mark Collection M
 - (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section{
-    NSInteger row = 0;
-    if (_tweet.like_users.count > 0) {
-        row = _tweet.like_users.count;
-        if (_tweet.likes.integerValue > _tweet.like_users.count) {
-            row++;
-        }
-        row = MIN(row, kTweetDetailCell_LikeNumMax);
-    }
+    NSInteger row = MIN(kTweetDetailCell_MaxCollectionNum, [_tweet hasMoreLikesOrRewards]? _like_reward_users.count + 1: _like_reward_users.count);
     return row;
 }
 
 // The cell that is returned must be retrieved from a call to -dequeueReusableCellWithReuseIdentifier:forIndexPath:
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath{
     TweetLikeUserCCell *ccell = [collectionView dequeueReusableCellWithReuseIdentifier:kCCellIdentifier_TweetLikeUser forIndexPath:indexPath];
-    if (indexPath.row >= kTweetDetailCell_LikeNumMax-1) {
-        [ccell configWithUser:nil likesNum:_tweet.likes];
+    if (indexPath.row >= kTweetDetailCell_MaxCollectionNum -1
+        || indexPath.row >= _like_reward_users.count) {
+        [ccell configWithUser:nil rewarded:NO];
     }else{
-        if (_tweet.like_users.count > indexPath.row) {
-            User *curUser = [_tweet.like_users objectAtIndex:indexPath.row];
-            [ccell configWithUser:curUser likesNum:nil];
-        }else {
-            [ccell configWithUser:nil likesNum:_tweet.likes];
-        }
+        User *curUser = [_like_reward_users objectAtIndex:indexPath.row];
+        [ccell configWithUser:curUser rewarded:[_tweet rewardedBy:curUser]];
     }
     return ccell;
 }
 - (CGSize)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout*)collectionViewLayout sizeForItemAtIndexPath:(NSIndexPath *)indexPath{
-    CGSize itemSize;
-    itemSize = CGSizeMake(kTweetDetailCell_LikeUserCCell_Height, kTweetDetailCell_LikeUserCCell_Height);
+    CGSize itemSize = [TweetLikeUserCCell ccellSize];
     return itemSize;
 }
 - (UIEdgeInsets)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout*)collectionViewLayout insetForSectionAtIndex:(NSInteger)section{
     UIEdgeInsets insetForSection;
-
-        insetForSection = UIEdgeInsetsMake(kTweetDetailCell_LikeUserCCell_Pading, kPaddingLeftWidth, kTweetDetailCell_LikeUserCCell_Pading, kPaddingLeftWidth);
+    insetForSection = UIEdgeInsetsMake(15, kPaddingLeftWidth, 5, kPaddingLeftWidth);
     return insetForSection;
 }
 - (CGFloat)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout*)collectionViewLayout minimumLineSpacingForSectionAtIndex:(NSInteger)section{
@@ -458,14 +469,13 @@
 }
 
 - (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath{
-    NSInteger numberOfItems = MIN(_tweet.like_users.count +1, _tweet.like_users.count);
-    numberOfItems = MIN(numberOfItems, kTweetDetailCell_LikeNumMax);
-    if (indexPath.row >= numberOfItems-1) {
+    if (indexPath.row >= kTweetDetailCell_MaxCollectionNum -1
+        || indexPath.row >= _like_reward_users.count) {
         if (_moreLikersBtnClickedBlock) {
             _moreLikersBtnClickedBlock(_tweet);
         }
-    }else if (_tweet.like_users.count > indexPath.row){
-        User *curUser = [_tweet.like_users objectAtIndex:indexPath.row];
+    }else{
+        User *curUser = [_like_reward_users objectAtIndex:indexPath.row];
         if (_userBtnClickedBlock) {
             _userBtnClickedBlock(curUser);
         }

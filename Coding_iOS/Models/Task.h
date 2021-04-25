@@ -12,9 +12,12 @@
 #import "Login.h"
 #import "TaskComment.h"
 #import "ProjectTag.h"
+#import "ResourceReference.h"
+#import "EABoardTaskList.h"
 
 @class Project;
 @class Task_Description;
+@class EABoardTaskList;
 
 typedef NS_ENUM(NSInteger, TaskHandleType) {
     TaskHandleTypeEdit = 0,
@@ -24,22 +27,26 @@ typedef NS_ENUM(NSInteger, TaskHandleType) {
 
 @interface Task : NSObject
 @property (readwrite, nonatomic, strong) User *owner, *creator;
-@property (readwrite, nonatomic, strong) NSString *title, *content, *backend_project_path, *deadline, *path, *description_mine;
+@property (readwrite, nonatomic, strong) NSString *title, *content, *backend_project_path, *deadline, *path, *description_mine,*descript;
 @property (readwrite, nonatomic, strong) NSDate *created_at, *updated_at;
 @property (readonly, nonatomic, strong) NSDate *deadline_date;
 @property (readwrite, nonatomic, strong) Project *project;
-@property (readwrite, nonatomic, strong) NSNumber *id, *status, *owner_id, *priority, *comments, *has_description, *number;
+@property (readwrite, nonatomic, strong) NSNumber *id, *status, *owner_id, *priority, *comments, *has_description, *number,*resource_id;
 @property (readwrite, nonatomic, strong) NSDictionary *propertyArrayMap;
-@property (readwrite, nonatomic, strong) NSMutableArray *activityList, *labels;
+@property (readwrite, nonatomic, strong) NSMutableArray *activityList, *labels, *watchers;
 @property (nonatomic, assign) TaskHandleType handleType;
 @property (nonatomic, assign) BOOL isRequesting, isRequestingDetail, isRequestingCommentList, needRefreshDetail;
 @property (readwrite, nonatomic, strong) NSString *nextCommentStr;
 @property (strong, nonatomic) Task_Description *task_description;
+@property (strong, nonatomic) ResourceReference *resourceReference;
+@property (strong, nonatomic) EABoardTaskList *task_board_list;
 
 + (Task *)taskWithProject:(Project *)project andUser:(User *)user;
++ (Task *)taskWithBoardTaskList:(EABoardTaskList *)boardTL andUser:(User *)user;
 + (Task *)taskWithBackend_project_path:(NSString *)backend_project_path andId:(NSString *)taskId;
 + (Task *)taskWithTask:(Task *)task;
 - (BOOL)isSameToTask:(Task *)task;
+- (User *)hasWatcher:(User *)watcher;
 
 //任务状态
 - (NSString *)toEditTaskStatusPath;
@@ -64,6 +71,10 @@ typedef NS_ENUM(NSInteger, TaskHandleType) {
 - (NSString *)toTaskDetailPath;
 //任务描述
 - (NSString *)toDescriptionPath;
+//任务关联资源
+- (NSString *)toResourceReferencePath;
+//任务关注者列表
+- (NSString *)toWatchersPath;
 //评论任务
 - (NSString *)toDoCommentPath;
 - (NSDictionary *)toDoCommentParams;

@@ -60,14 +60,14 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
     return authURLs;
 }
 
-+(NSString *)otpCodeWithGK:(NSString *)global_key{
++ (NSString *)otpCodeWithGK:(NSString *)global_key{
     NSString *otpCode = nil;
     if (global_key.length > 0) {
         NSMutableArray *authURLs = [self loadKeychainAuthURLs];
         for (OTPAuthURL *authURL in authURLs) {
             NSString *cur_issure = authURL.issuer;
             NSString *cur_global_key = [[authURL.name componentsSeparatedByString:@"@"] firstObject];
-            if ([cur_issure isEqualToString:@"Coding"] &&
+            if ([cur_issure.uppercaseString isEqualToString:@"CODING"] &&
                 [cur_global_key isEqualToString:global_key]) {
                 otpCode = authURL.otpCode;
                 break;
@@ -75,6 +75,20 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
         }
     }
     return otpCode;
+}
+
++ (BOOL)handleScanResult:(NSString *)resultStr ofVC:(UIViewController *)vc{
+    //解析结果
+    OTPAuthURL *authURL = [OTPAuthURL authURLWithURL:[NSURL URLWithString:resultStr] secret:nil];
+    if ([authURL isKindOfClass:[TOTPAuthURL class]]) {
+        OTPListViewController *nextVC = [OTPListViewController new];
+        [vc.navigationController pushViewController:nextVC animated:YES];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [nextVC addOneAuthURL:authURL];
+        });
+        return YES;
+    }
+    return NO;
 }
 
 - (void)viewDidLoad{
@@ -135,9 +149,9 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
         if (!_tipLabel) {
             _tipLabel = [UILabel new];
             _tipLabel.numberOfLines = 0;
-            _tipLabel.textAlignment = NSTextAlignmentCenter;
-            _tipLabel.textColor = [UIColor colorWithHexString:@"0x222222"];
-            _tipLabel.text = @"启用两步验证后，登录 Coding 账户或进行敏感操作时都将需要输入密码和本客户端生成的验证码。";
+            _tipLabel.textAlignment = NSTextAlignmentNatural;
+            _tipLabel.textColor = kColor222;
+            _tipLabel.text = @"启用两步验证后，账户登录或进行敏感操作时，都将需要输入密码和本客户端生成的验证码。";
             [self.view addSubview:_tipLabel];
         }
         if (!_beginButton) {
@@ -146,7 +160,7 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
             [_beginButton mas_makeConstraints:^(MASConstraintMaker *make) {
                 make.size.mas_equalTo(CGSizeMake(kScreen_Width-kPaddingLeftWidth*2, 45));
                 make.centerX.equalTo(self.view);
-                make.bottom.equalTo(self.view).offset(-20);
+                make.bottom.equalTo(self.view).offset(-20- kSafeArea_Bottom);
             }];
         }
         CGSize tipImageSize = tipImage.size;
@@ -182,10 +196,31 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
 - (void)beginButtonClicked:(id)sender{
     __weak typeof(self) weakSelf = self;
     ZXScanCodeViewController *vc = [ZXScanCodeViewController new];
-    vc.sucessScanBlock = ^(OTPAuthURL *authURL){
-        [weakSelf addOneAuthURL:authURL];
+    vc.scanResultBlock = ^(ZXScanCodeViewController *vc, NSString *resultStr){
+        [weakSelf dealWithScanResult:resultStr ofVC:vc];
     };
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)dealWithScanResult:(NSString *)resultStr ofVC:(ZXScanCodeViewController *)vc{
+    //解析结果
+    OTPAuthURL *authURL = [OTPAuthURL authURLWithURL:[NSURL URLWithString:resultStr] secret:nil];
+    if ([authURL isKindOfClass:[TOTPAuthURL class]]) {
+        [self addOneAuthURL:authURL];
+        [vc.navigationController popViewControllerAnimated:YES];
+    }else{
+        NSString *tipStr;
+        if (authURL) {
+            tipStr = @"目前仅支持 TOTP 类型的身份验证令牌";
+        }else{
+            tipStr = [NSString stringWithFormat:@"条码「%@」不是有效的身份验证令牌条码", resultStr];
+        }
+        [[UIAlertController ea_alertViewWithTitle:@"无效条码" message:tipStr buttonTitles:@[@"重试"] destructiveTitle:nil cancelTitle:nil andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
+            if (![vc isScaning]) {
+                [vc startScan];
+            }
+        }] show];
+    }
 }
 
 - (void)addOneAuthURL:(OTPAuthURL *)authURL{
@@ -198,12 +233,9 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
             if ([authURL.otpCode isEqualToString:item.otpCode]) {
                 kTipAlert(@"该二维码已被保存为账户名：\n%@", authURL.name);
             }else{
-                UIAlertView *alertV = [UIAlertView bk_alertViewWithTitle:@"提示" message:[NSString stringWithFormat:@"账户名：%@ 已存在\n选择 '更新' 覆盖原账户。", authURL.name]];
-                [alertV bk_setCancelButtonWithTitle:@"取消" handler:nil];
-                [alertV bk_addButtonWithTitle:@"更新" handler:nil];
                 @weakify(self);
-                alertV.bk_didDismissBlock = ^(UIAlertView *alertView, NSInteger buttonIndex){
-                    if (buttonIndex == 1) {
+                [[UIAlertController ea_alertViewWithTitle:@"提示" message:[NSString stringWithFormat:@"账户名：%@ 已存在\n选择 '更新' 覆盖原账户。", authURL.name] buttonTitles:@[@"更新"] destructiveTitle:nil cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
+                    if (index == 0) {
                         @strongify(self);
                         if ([authURL saveToKeychain]) {
                             if ([self.authURLs indexOfObject:item] != NSNotFound) {
@@ -214,10 +246,8 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
                         }else{
                             kTipAlert(@"保存过程中发生了异常，请重新扫描");
                         }
-
                     }
-                };
-                [alertV show];
+                }] show];
             }
             break;
         }
@@ -290,14 +320,13 @@ static NSString *const kOTPKeychainEntriesArray = @"OTPKeychainEntries";
     if (editingStyle == UITableViewCellEditingStyleDelete) {
         OTPAuthURL *authURL = self.authURLs[indexPath.section];
         __weak typeof(self) weakSelf = self;
-        UIAlertView *alertV = [UIAlertView bk_alertViewWithTitle:@"删除此账户不会停用两步验证" message:@"\n您可能会因此无法登录自己的账户\n在删除该账户前，请先停用两步验证，或者确保您可以通过其它方法生成验证码。"];
-        [alertV bk_setCancelButtonWithTitle:@"取消" handler:^{
-            [weakSelf configUI];
-        }];
-        [alertV bk_addButtonWithTitle:@"确认删除" handler:^{
-            [weakSelf deleteOneAuthURL:authURL];
-        }];
-        [alertV show];
+        [[UIAlertController ea_alertViewWithTitle:@"删除此账户不会停用两步验证" message:@"\n您可能会因此无法登录自己的账户\n在删除该账户前，请先停用两步验证，或者确保您可以通过其它方法生成验证码。" buttonTitles:nil destructiveTitle:@"确认删除" cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
+            if (index == 0) {
+                [weakSelf deleteOneAuthURL:authURL];
+            }else{
+                [weakSelf configUI];
+            }
+        }] show];
     }
 }
 

@@ -8,7 +8,7 @@
 
 #import "TopicHotkeyView.h"
 
-#define kFirst_Hotkey_Color         @"0x3bbd79"
+#define kFirst_Hotkey_Color         @"0x0060FF"
 #define kOther_Hotkey_Text_Color    @"0x222222"
 #define kOther_HotKey_Border_Color  @"0xb5b5b5"
 
@@ -43,7 +43,7 @@
     if(hotkeys.count) {
         
         CGFloat currentWidth = 10.0f;
-        CGFloat currentHeight = 0.0f;
+        CGFloat currentHeight = 15.0f;
         CGSize currentSize = CGSizeZero;
         CGFloat maxWidth = kScreen_Width - 20.0f;
         UIFont *hotkeyFont = [UIFont systemFontOfSize:12.0f];
@@ -99,7 +99,7 @@
             
             if(i == hotkeys.count - 1) {
                 
-                currentHeight += currentSize.height + 14.0f;
+                currentHeight += currentSize.height + 15.0f;
             }
             
             [self addSubview:btnHotkey];

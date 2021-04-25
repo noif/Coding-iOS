@@ -41,12 +41,16 @@
 - (void)setHasBeenSelected:(BOOL)hasBeenSelected{
     _hasBeenSelected = hasBeenSelected;
     if (_hasBeenSelected) {
-        self.backgroundColor = [UIColor colorWithHexString:@"0x3bbd79"];
+        self.backgroundColor = kColorBrandBlue;
         _contentLabel.textColor = [UIColor whiteColor];
     }else{
-        self.backgroundColor = kColorTableSectionBg;
+        self.backgroundColor = [UIColor whiteColor];
         _contentLabel.textColor = [UIColor blackColor];
     }
+}
+
+- (void)setSelected:(BOOL)selected{
+    
 }
 
 + (CGSize)ccellSizeWithObj:(id)obj{

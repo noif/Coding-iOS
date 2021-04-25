@@ -9,7 +9,7 @@
 #import "TitleDisclosureCell.h"
 
 @interface TitleDisclosureCell ()
-@property (strong, nonatomic) UILabel *titleLabel;
+@property (strong, nonatomic, readwrite) UILabel *titleLabel;
 @property (strong, nonatomic) NSString *title;
 @end
 
@@ -21,6 +21,7 @@
     if (self) {
         // Initialization code
         self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        self.backgroundColor = kColorTableBG;
         if (!_titleLabel) {
             _titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(kPaddingLeftWidth, 7, (kScreen_Width - 120), 30)];
             _titleLabel.backgroundColor = [UIColor clearColor];

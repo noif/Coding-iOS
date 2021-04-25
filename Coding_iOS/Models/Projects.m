@@ -30,7 +30,7 @@
     pros.curUser = user;
     
     pros.page = [NSNumber numberWithInteger:1];
-    pros.pageSize = [NSNumber numberWithInteger:9999];
+    pros.pageSize = @(999999999);
     return pros;
 }
 
@@ -45,12 +45,23 @@
             typeStr = @"joined";
             break;
         case  ProjectsTypeCreated:
+        case ProjectsTypeCreatedPrivate:
+        case ProjectsTypeCreatedPublic:
             typeStr = @"created";
             break;
         case  ProjectsTypeTaProject:
             typeStr = @"project";
             break;
         case  ProjectsTypeTaStared:
+            typeStr = @"stared";
+            break;
+        case  ProjectsTypeTaWatched:
+            typeStr = @"watched";
+            break;
+        case  ProjectsTypeWatched:
+            typeStr = @"watched";
+            break;
+        case  ProjectsTypeStared:
             typeStr = @"stared";
             break;
         default:
@@ -71,9 +82,12 @@
     }
     return params;
 }
+
 - (NSString *)toPath{
     NSString *path;
-    if (self.type >= ProjectsTypeTaProject) {
+    if (self.type==ProjectsTypeAllPublic) {
+        path = @"api/public/all";
+    }else if (self.type >= ProjectsTypeTaProject && self.type < ProjectsTypeAllPublic) {
         path = [NSString stringWithFormat:@"api/user/%@/public_projects", _curUser.global_key];
     }else{
         path = @"api/projects";
@@ -90,8 +104,10 @@
     NSArray *projectList = responsePros.list;
     if (self.type == ProjectsTypeToChoose) {
         projectList = [projectList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"is_public == %d", NO]];
+    }else if (self.type == ProjectsTypeCreatedPrivate || self.type == ProjectsTypeCreatedPublic){
+        projectList = [projectList filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"is_public == %d", (self.type == ProjectsTypeCreatedPublic)]];
     }
-    if (projectList.count <= 0) {
+    if (!projectList) {
         return;
     }
     

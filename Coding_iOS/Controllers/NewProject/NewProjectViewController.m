@@ -25,7 +25,7 @@
 @implementation NewProjectViewController
 
 -(void)viewWillAppear:(BOOL)animated{
-    [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleLightContent];
+    [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleDefault];
     [self.rdv_tabBarController setTabBarHidden:YES animated:YES];
 }
 
@@ -40,7 +40,7 @@
     //
     self.tableView.tableFooterView = [UIView new];
     [self.tableView setSeparatorColor:[UIColor colorWithRGBHex:0xe5e5e5]];
-    
+    self.tableView.backgroundColor = kColorTableSectionBg;
     //
     self.descTextView.placeholder = @"填写项目描述...";
 
@@ -68,7 +68,7 @@
 }
 
 -(void)selectProjectImage{
-    [[UIActionSheet bk_actionSheetCustomWithTitle:@"选择照片" buttonTitles:@[@"拍照",@"从相册选择"] destructiveTitle:nil cancelTitle:@"取消" andDidDismissBlock:^(UIActionSheet *sheet, NSInteger index) {
+    [[UIAlertController ea_actionSheetCustomWithTitle:@"选择照片" buttonTitles:@[@"拍照",@"从相册选择"] destructiveTitle:nil cancelTitle:@"取消" andDidDismissBlock:^(UIAlertAction *action, NSInteger index) {
         
         if (index > 1) {
             return ;
@@ -114,35 +114,45 @@
             Project *project = [[Project alloc] init];
             project.name = projectName;
             project.description_mine = [self.descTextView.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-            
-            if (self.projectType == NewProjectTypePublic) {
-                project.is_public = @YES;
-            }else{
-                project.is_public = @NO;
-            }
-            
-            self.submitButtonItem.enabled = NO;
+            project.gitReadmeEnabled = @(_readmeSwitch.on);
+            project.is_public = @(self.projectType == NewProjectTypePublic);
             
             // 效验完成，开始发送请求创建项目
+            self.submitButtonItem.enabled = NO;
             __weak typeof(self) weakSelf = self;
             [[Coding_NetAPIManager sharedManager] request_NewProject_WithObj:project image:self.projectIconImage andBlock:^(NSString *data, NSError *error) {
+                weakSelf.submitButtonItem.enabled = YES;
                 if (data.length > 0) {
-                    
-                    NSString *projectRegexStr = @"/u/([^/]+)/p/([^/]+)";
-                    NSArray *matchedCaptures = [data captureComponentsMatchedByRegex:projectRegexStr];
-                    if (matchedCaptures.count >= 3) {
-                        NSString *user_global_key = matchedCaptures[1];
-                        NSString *project_name = matchedCaptures[2];
-                        Project *curPro = [[Project alloc] init];
-                        curPro.owner_user_name = user_global_key;
-                        curPro.name = project_name;
-                        //标记已读
-                        [[Coding_NetAPIManager sharedManager] request_Project_UpdateVisit_WithObj:curPro andBlock:^(id dataTemp, NSError *errorTemp) {
-                        }];
-                        [weakSelf gotoPro:curPro];
+                    if (kTarget_Enterprise) {
+                        NSString *projectRegexStr = @"/p/([^/]+)";
+                        NSArray *matchedCaptures = [data captureComponentsMatchedByRegex:projectRegexStr];
+                        if (matchedCaptures.count >= 2) {
+                            NSString *user_global_key = [NSObject baseCompany];
+                            NSString *project_name = matchedCaptures[1];
+                            Project *curPro = [[Project alloc] init];
+                            curPro.owner_user_name = user_global_key;
+                            curPro.name = project_name;
+                            //标记已读
+                            [[Coding_NetAPIManager sharedManager] request_Project_UpdateVisit_WithObj:curPro andBlock:^(id dataTemp, NSError *errorTemp) {
+                            }];
+                            [weakSelf gotoPro:curPro];
+                        }
+                    }else{
+                        NSString *projectRegexStr = @"/u/([^/]+)/p/([^/]+)";
+                        NSArray *matchedCaptures = [data captureComponentsMatchedByRegex:projectRegexStr];
+                        if (matchedCaptures.count >= 3) {
+                            NSString *user_global_key = matchedCaptures[1];
+                            NSString *project_name = matchedCaptures[2];
+                            Project *curPro = [[Project alloc] init];
+                            curPro.owner_user_name = user_global_key;
+                            curPro.name = project_name;
+                            //标记已读
+                            [[Coding_NetAPIManager sharedManager] request_Project_UpdateVisit_WithObj:curPro andBlock:^(id dataTemp, NSError *errorTemp) {
+                            }];
+                            [weakSelf gotoPro:curPro];
+                        }
                     }
                 }
-                self.submitButtonItem.enabled = YES;
             }];
         }else{
             [[[UIAlertView alloc] initWithTitle:@"提示" message:@"项目名只允许字母、数字或者下划线(_)、中划线(-)，必须以字母或者数字开头,且不能以.git结尾" delegate:nil cancelButtonTitle:@"知道了" otherButtonTitles: nil] show];
@@ -206,32 +216,41 @@
 
 -(void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath
 {
-    //
-    if (indexPath.section == 0 && indexPath.row == 0) {
-        return;
-    }
-    if (indexPath.section == 1 && indexPath.row == 0) {
-         cell.separatorInset = UIEdgeInsetsMake(0.f, cell.bounds.size.width, 0.f, 0.f);
-        return;
-    }
-    
-    // Remove seperator inset
-    if ([cell respondsToSelector:@selector(setSeparatorInset:)]) {
-        [cell setSeparatorInset:UIEdgeInsetsZero];
-    }
-    
-    // Prevent the cell from inheriting the Table View's margin settings
-    if ([cell respondsToSelector:@selector(setPreservesSuperviewLayoutMargins:)]) {
-        [cell setPreservesSuperviewLayoutMargins:NO];
-    }
-    
-    // Explictly set your cell's layout margins
-    if ([cell respondsToSelector:@selector(setLayoutMargins:)]) {
-        [cell setLayoutMargins:UIEdgeInsetsZero];
-    }
-
+//    //
+//    if (indexPath.section == 0 && indexPath.row == 0) {
+//        return;
+//    }
+//    if (indexPath.section == 1 && indexPath.row == 0) {
+//         cell.separatorInset = UIEdgeInsetsMake(0.f, cell.bounds.size.width, 0.f, 0.f);
+//        return;
+//    }
+//    
+//    // Remove seperator inset
+//    if ([cell respondsToSelector:@selector(setSeparatorInset:)]) {
+//        [cell setSeparatorInset:UIEdgeInsetsZero];
+//    }
+//    
+//    // Prevent the cell from inheriting the Table View's margin settings
+//    if ([cell respondsToSelector:@selector(setPreservesSuperviewLayoutMargins:)]) {
+//        [cell setPreservesSuperviewLayoutMargins:NO];
+//    }
+//    
+//    // Explictly set your cell's layout margins
+//    if ([cell respondsToSelector:@selector(setLayoutMargins:)]) {
+//        [cell setLayoutMargins:UIEdgeInsetsZero];
+//    }
+    [tableView addLineforPlainCell:cell forRowAtIndexPath:indexPath withLeftSpace:kPaddingLeftWidth];
 }
 
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath{
+    CGFloat rowH = 44;
+    if (indexPath.section == 0) {
+        rowH = (indexPath.row == 0? 120: 80);
+    }else if (indexPath.section == 1 && indexPath.row == 0){//个人版、企业版 都不让创建公有项目了
+        rowH = 0;
+    }
+    return rowH;
+}
 #pragma mark NewProjectTypeViewController Delegate
 
 -(void)newProjectType:(NewProjectTypeViewController *)newProjectVC didSelectType:(NewProjectType)type{
@@ -249,7 +268,7 @@
 
 #pragma mark - Orientations
 - (BOOL)shouldAutorotate{
-    return UIInterfaceOrientationIsLandscape(self.interfaceOrientation);
+    return UIInterfaceOrientationIsLandscape(UIApplication.sharedApplication.statusBarOrientation);
 }
 
 - (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {

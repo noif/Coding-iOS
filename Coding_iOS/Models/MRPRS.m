@@ -23,41 +23,35 @@
     return self;
 }
 
-+(instancetype)MRPRSWithType:(MRPRSType)type userGK:(NSString *)user_gk projectName:(NSString *)project_name{
-    MRPRS *obj = [[MRPRS alloc] init];
-    obj.type = type;
-    obj.user_gk = user_gk;
-    obj.project_name = project_name;
-    return obj;
+-(instancetype)initWithType:(MRPRSType)type userGK:(NSString *)user_gk projectName:(NSString *)project_name{
+    self = [self init];
+    if (self) {
+        _type = type;
+        _user_gk = user_gk;
+        _project_name = project_name;
+    }
+    return self;
 }
+
 - (NSDictionary *)toParams{
-    return @{@"page" : (_willLoadMore? [NSNumber numberWithInteger:_page.intValue +1] : [NSNumber numberWithInteger:1]),
-             @"pageSize" : _pageSize};
+    NSMutableDictionary *params = @{@"page" : (_willLoadMore? [NSNumber numberWithInteger:_page.intValue +1] : [NSNumber numberWithInteger:1]),
+                                    @"pageSize" : _pageSize}.mutableCopy;
+    params[@"status"] = (_type == MRPRSTypeMRCanMerge? @"canmerge":
+                         _type == MRPRSTypeMRCannotMerge? @"cannotmerge":
+                         _type == MRPRSTypeMRRefused? @"refused":
+                         _type == MRPRSTypeMRAccepted? @"accepted":
+                         nil);
+    return params;
 }
 - (NSString *)toPath{
     NSString *typeStr;
-    switch (_type) {
-        case MRPRSTypeMRAll:
-            typeStr = @"merges/all";
-            break;
-        case MRPRSTypeMROpen:
-            typeStr = @"merges/open";
-            break;
-        case MRPRSTypeMRClose:
-            typeStr = @"merges/closed";
-            break;
-        case MRPRSTypePRAll:
-            typeStr = @"pulls/all";
-            break;
-        case MRPRSTypePROpen:
-            typeStr = @"pulls/open";
-            break;
-        case MRPRSTypePRClose:
-            typeStr = @"pulls/closed";
-            break;
-        default:
-            typeStr = @"";
-            break;
+    if (_type < MRPRSTypePROpen) {
+        typeStr = @"merges/filter";
+    }else{
+        typeStr = (_type == MRPRSTypePROpen? @"pulls/open":
+                   _type == MRPRSTypePRClosed? @"pulls/closed":
+                   _type == MRPRSTypePRAll? @"pulls/all":
+                   @"");
     }
     return [NSString stringWithFormat:@"api/user/%@/project/%@/git/%@", _user_gk, _project_name, typeStr];
 }

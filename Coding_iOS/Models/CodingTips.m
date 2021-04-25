@@ -67,16 +67,19 @@
 - (NSDictionary *)toTipsParams{
     NSDictionary *params;
     if (_type == 0) {
-        params = @{@"type" : [NSNumber numberWithInteger:0],
+        params = @{@"type" : @(0),
                    @"page" : _willLoadMore? [NSNumber numberWithInteger:_page.integerValue +1]: [NSNumber numberWithInteger:1],
                    @"pageSize" : _pageSize};
     }else if (_type == 1){
-        params = @{@"type" : [NSArray arrayWithObjects:[NSNumber numberWithInteger:1], [NSNumber numberWithInteger:2], nil],
+        params = @{@"type" : @[@(1), @(2)],
                    @"page" : _willLoadMore? [NSNumber numberWithInteger:_page.integerValue +1]: [NSNumber numberWithInteger:1],
                    @"pageSize" : _pageSize};
     }else if (_type == 2){
-        params = @{@"type" : [NSNumber numberWithInteger:4],
+        params = @{@"type" : @[@(4), @(6)],
                    @"page" : _willLoadMore? [NSNumber numberWithInteger:_page.integerValue +1]: [NSNumber numberWithInteger:1],
+                   @"pageSize" : _pageSize};
+    }else if (_type == 3){
+        params = @{@"page" : _willLoadMore? [NSNumber numberWithInteger:_page.integerValue +1]: [NSNumber numberWithInteger:1],
                    @"pageSize" : _pageSize};
     }
     return params;
@@ -93,6 +96,8 @@
     }else if (_type == 2){
         params = @{@"type" : @(4),
                    @"all" : @(1)};
+    }else if (_type == 3){
+        params = @{@"all" : @(1)};
     }
     return params;
 }

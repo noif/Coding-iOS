@@ -13,6 +13,7 @@
 
 @interface TweetLikeUserCCell : UICollectionViewCell
 
-- (void)configWithUser:(User *)user likesNum:(NSNumber *)likes;
+- (void)configWithUser:(User *)user rewarded:(BOOL)rewarded;
 
++(CGSize)ccellSize;
 @end

@@ -11,6 +11,10 @@
 #import <POP+MCAnimate/POP+MCAnimate.h>
 #import <math.h>
 
+@interface UIButton ()
+@property (strong, nonatomic) UIActivityIndicatorView *activityIndicator;
+@end
+
 @implementation UIButton (Common)
 + (UIButton *)buttonWithTitle:(NSString *)title titleColor:(UIColor *)color{
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -28,7 +32,7 @@
     return btn;
 }
 + (UIButton *)buttonWithTitle_ForNav:(NSString *)title{
-    return [UIButton buttonWithTitle:title titleColor:[UIColor colorWithHexString:@"0x3bbd79"]];
+    return [UIButton buttonWithTitle:title titleColor:kColorBrandBlue];
 }
 + (UIButton *)buttonWithUserStyle{
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -47,8 +51,8 @@
     self.layer.masksToBounds = YES;
     self.layer.cornerRadius = 2.0;
     self.titleLabel.font = [UIFont systemFontOfSize:17];
-//    [self setTitleColor:[UIColor colorWithHexString:@"0x222222"] forState:UIControlStateNormal];
-    [self setTitleColor:[UIColor colorWithHexString:@"0x3bbd79"] forState:UIControlStateNormal];
+//    [self setTitleColor:kColor222 forState:UIControlStateNormal];
+    [self setTitleColor:kColorDark3 forState:UIControlStateNormal];
     [self setBackgroundImage:[UIImage imageWithColor:[UIColor clearColor]] forState:UIControlStateNormal];
     [self setBackgroundImage:[UIImage imageWithColor:[UIColor lightGrayColor]] forState:UIControlStateHighlighted];
 }
@@ -59,7 +63,7 @@
 - (void)setUserTitle:(NSString *)aUserName font:(UIFont *)font maxWidth:(CGFloat)maxWidth{
     [self setTitle:aUserName forState:UIControlStateNormal];
     CGRect frame = self.frame;
-    CGFloat titleWidth = [self.titleLabel.text getWidthWithFont:font constrainedToSize:CGSizeMake(kScreen_Width, frame.size.height)];
+    CGFloat titleWidth = [self.titleLabel.text getWidthWithFont:font constrainedToSize:CGSizeMake(CGFLOAT_MAX, frame.size.height)];
     if (titleWidth > maxWidth) {
         titleWidth = maxWidth;
 //        self.titleLabel.minimumScaleFactor = 0.5;
@@ -121,11 +125,20 @@
     return btn;
 }
 
-+ (UIButton *)tweetBtnWithFrame:(CGRect)frame image:(NSString *)imageName{
++ (UIButton *)tweetBtnWithFrame:(CGRect)frame alignmentLeft:(BOOL)alignmentLeft{
     UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     button.frame = frame;
-    [button setImage:[UIImage imageNamed:imageName] forState:UIControlStateNormal];
-    [button doBorderWidth:1.0 color:[UIColor colorWithHexString:@"0xCCCCCC"] cornerRadius:CGRectGetHeight(button.frame)/2];
+    button.titleLabel.font = [UIFont systemFontOfSize:12];
+    [button setTitleColor:kColorDark7 forState:UIControlStateNormal];
+    if (alignmentLeft) {
+        button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+        button.imageEdgeInsets = UIEdgeInsetsMake(0, 5, 0, -5);
+        button.titleEdgeInsets = UIEdgeInsetsMake(0, 10, 0, -10);
+    }else{
+        button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentRight;
+        button.imageEdgeInsets = UIEdgeInsetsMake(0, -10, 0, 10);
+        button.titleEdgeInsets = UIEdgeInsetsMake(0, -5, 0, 5);
+    }
     return button;
 }
 - (void)animateToImage:(NSString *)imageName{
@@ -170,5 +183,32 @@
         }];
         [imageV pop_addAnimation:moveA forKey:@"animateToImage"];
     }
+}
+#pragma mark -
+//开始请求时，UIActivityIndicatorView 提示
+static char EAActivityIndicatorKey;
+- (void)setActivityIndicator:(UIActivityIndicatorView *)activityIndicator{
+    objc_setAssociatedObject(self, &EAActivityIndicatorKey, activityIndicator, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+}
+- (UIActivityIndicatorView *)activityIndicator{
+    return objc_getAssociatedObject(self, &EAActivityIndicatorKey);
+}
+
+- (void)startQueryAnimate{
+    if (!self.activityIndicator) {
+        self.activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+        self.activityIndicator.hidesWhenStopped = YES;
+        [self addSubview:self.activityIndicator];
+        [self.activityIndicator mas_makeConstraints:^(MASConstraintMaker *make) {
+            make.center.equalTo(self);
+        }];
+    }
+    [self.activityIndicator startAnimating];
+    self.enabled = NO;
+}
+- (void)stopQueryAnimate{
+    [self.activityIndicator stopAnimating];
+    self.enabled = YES;
 }
 @end

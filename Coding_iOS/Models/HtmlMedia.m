@@ -62,6 +62,9 @@
         if (![_contentDisplay hasSuffix:@"\n"] && _contentDisplay.length > 0) {
             [_contentDisplay appendString:@"\n"];
         }
+    }else if ([element.attributes[@"class"] isEqualToString:@"kdmath"]) {
+        item = [HtmlMediaItem htmlMediaItemWithType:HtmlMediaItemType_Math];
+        item.code = [element.text trimWhitespace];
     }else if ([element.tagName isEqualToString:@"code"]) {
         item = [HtmlMediaItem htmlMediaItemWithType:HtmlMediaItemType_Code];
         item.code = [element.text trimWhitespace];
@@ -147,6 +150,25 @@
 - (void)removeItem:(HtmlMediaItem *)delItem{
     NSInteger index = [_mediaItems indexOfObject:delItem];
     if (index != NSNotFound) {
+        //处理链接左侧字符串尾部的空格
+        if (delItem.range.location > 0) {
+            NSString *lStr = [_contentDisplay substringToIndex:delItem.range.location];
+            NSRange lRange = [lStr rangeByTrimmingRightCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            NSUInteger diffLength = lStr.length - lRange.length;
+            if (diffLength > 0) {
+                delItem.range = NSMakeRange(delItem.range.location - diffLength, delItem.range.length + diffLength);
+            }
+        }
+        //处理链接右侧字符串头部的空格
+        if (delItem.range.location + delItem.range.length < _contentDisplay.length) {
+            NSString *rStr = [_contentDisplay substringFromIndex:delItem.range.location + delItem.range.length];
+            NSRange rRange = [rStr rangeByTrimmingLeftCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            NSUInteger diffLength = rStr.length - rRange.length;
+            if (diffLength > 0) {
+                delItem.range = NSMakeRange(delItem.range.location, delItem.range.length + diffLength);
+            }
+        }
+        //更新 _contentDisplay 和 delItem 后面 items 的 range
         if (delItem.range.length > 0) {
             [_mediaItems enumerateObjectsWithOptions:NSEnumerationReverse usingBlock:^(HtmlMediaItem *  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
                 if (idx > index) {
@@ -157,10 +179,18 @@
             }];
             [_contentDisplay replaceCharactersInRange:delItem.range withString:@""];
         }
+        //删除 delItem
         [_mediaItems removeObject:delItem];
     }
 }
-
+- (BOOL)needToShowDetail{
+    for (HtmlMediaItem *item in _mediaItems) {
+        if (item.type == HtmlMediaItemType_Code || item.type == HtmlMediaItemType_Math) {
+            return YES;
+        }
+    }
+    return NO;
+}
 + (instancetype)htmlMediaWithString:(NSString *)htmlString showType:(MediaShowType)showType{
     return [[[self class] alloc] initWithString:htmlString showType:showType];
 }
@@ -228,6 +258,9 @@
         case HtmlMediaItemType_AutoLink:
         case HtmlMediaItemType_CustomLink:
             displayStr = [_linkStr stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            break;
+        case HtmlMediaItemType_Math:
+            displayStr = @"[math]";
             break;
         default:
             displayStr = @"";

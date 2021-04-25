@@ -7,25 +7,37 @@
 //
 
 #import "ZXScanCodeViewController.h"
-#import <AVFoundation/AVFoundation.h>
 #import "ScanBGView.h"
+#import "Helper.h"
 
-@interface ZXScanCodeViewController ()<AVCaptureMetadataOutputObjectsDelegate>
+@interface ZXScanCodeViewController ()<AVCaptureMetadataOutputObjectsDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property (strong, nonatomic) ScanBGView *myScanBGView;
 @property (strong, nonatomic) UIImageView *scanRectView, *lineView;
 @property (strong, nonatomic) UILabel *tipLabel;
 
 @property (strong, nonatomic) AVCaptureVideoPreviewLayer *videoPreviewLayer;
+@property (strong, nonatomic) CIDetector *detector;
+
+@property (assign, nonatomic, readwrite) BOOL isScaning;
+
 @end
 
 @implementation ZXScanCodeViewController
+
+- (CIDetector *)detector{
+    if (!_detector) {
+        _detector = [CIDetector detectorOfType:CIDetectorTypeQRCode context:nil options:@{ CIDetectorAccuracy : CIDetectorAccuracyHigh }];
+    }
+    return _detector;
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     
     self.title = @"扫描二维码";
     self.view.backgroundColor = [UIColor blackColor];
-    
+    self.navigationItem.rightBarButtonItem = [UIBarButtonItem itemWithBtnTitle:@"相册" target:self action:@selector(clickRightBarButton:)];
+
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     [nc addObserver:self
            selector:@selector(applicationDidBecomeActive:)
@@ -35,19 +47,20 @@
            selector:@selector(applicationWillResignActive:)
                name:UIApplicationWillResignActiveNotification
              object:nil];
-
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    [self configUI];
+    if (!_videoPreviewLayer) {
+        [self configUI];
+    }else{
+        [self startScan];
+    }
 }
 
 - (void)viewWillDisappear:(BOOL)animated{
     [super viewWillDisappear:animated];
-    [self.videoPreviewLayer.session stopRunning];
-    [self.videoPreviewLayer removeFromSuperlayer];
-    [self scanLineStopAction];
+    [self stopScan];
 }
 
 - (void)configUI{
@@ -126,6 +139,7 @@
         make.height.mas_equalTo(30);
     }];
     [_scanRectView addSubview:_lineView];
+    _isScaning = YES;
     [_videoPreviewLayer.session startRunning];
     [self scanLineStartAction];
 }
@@ -175,48 +189,94 @@
 }
 
 - (void)analyseResult:(AVMetadataMachineReadableCodeObject *)result{
-    DebugLog(@"result : %@", result.stringValue);
-    if (result.stringValue.length <= 0) {
+    if (!_isScaning) {
         return;
     }
-
+    if (![result isKindOfClass:[AVMetadataMachineReadableCodeObject class]]) {
+        return;
+    }
+    NSString *resultStr = result.stringValue;
+    if (resultStr.length <= 0) {
+        return;
+    }
     //停止扫描
-    [self.videoPreviewLayer.session stopRunning];
-    [self scanLineStopAction];
-    
+    [self stopScan];
     //震动反馈
     AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
-    
-    //解析结果
-    OTPAuthURL *authURL = [OTPAuthURL authURLWithURL:[NSURL URLWithString:result.stringValue] secret:nil];
-    if ([authURL isKindOfClass:[TOTPAuthURL class]]) {
-        if (self.sucessScanBlock) {
-            self.sucessScanBlock(authURL);
-        }
-        [self.navigationController popViewControllerAnimated:YES];
-    }else{
-        NSString *tipStr;
-        if (authURL) {
-            tipStr = @"目前仅支持 TOTP 类型的身份验证令牌";
-        }else{
-            tipStr = [NSString stringWithFormat:@"条码「%@ : %@」不是有效的身份验证令牌条码", result.type, result.stringValue];
-        }
-        UIAlertView *alertV = [UIAlertView bk_alertViewWithTitle:@"无效条码" message:tipStr];
-        [alertV bk_addButtonWithTitle:@"重试" handler:^{
-            [self.videoPreviewLayer.session startRunning];
-            [self scanLineStartAction];
-        }];
-        [alertV show];
+    //交给 block 处理
+    if (_scanResultBlock) {
+        _scanResultBlock(self, resultStr);
     }
 }
 
 #pragma mark Notification
 - (void)applicationDidBecomeActive:(UIApplication *)application {
-    [self.videoPreviewLayer.session startRunning];
-    [self scanLineStartAction];
+    [self startScan];
 }
 
 - (void)applicationWillResignActive:(UIApplication *)application {
+    [self stopScan];
+}
+#pragma mark Photo
+-(void)clickRightBarButton:(UIBarButtonItem*)item{
+    if (![Helper checkPhotoLibraryAuthorizationStatus]) {
+        return;
+    }
+    //停止扫描
+    [self stopScan];
+    
+    UIImagePickerController *picker = [UIImagePickerController new];
+    picker.delegate = self;
+    picker.allowsEditing = NO;
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    [self.navigationController presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<NSString *,id> *)info{
+    [picker dismissViewControllerAnimated:YES completion:^{
+        [self handleImageInfo:info];
+    }];
+}
+
+- (void)handleImageInfo:(NSDictionary *)info{
+    if (!_isScaning) {
+        return;
+    }
+    //停止扫描
+    [self stopScan];
+    
+    UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
+    if (!image){
+        image = [info objectForKey:UIImagePickerControllerOriginalImage];
+    }
+    __block NSString *resultStr = nil;
+    NSArray *features = [self.detector featuresInImage:[CIImage imageWithCGImage:image.CGImage]];
+    [features enumerateObjectsUsingBlock:^(CIQRCodeFeature *obj, NSUInteger idx, BOOL *stop) {
+        if (obj.messageString.length > 0) {
+            resultStr = obj.messageString;
+            *stop = YES;
+        }
+    }];
+    //震动反馈
+    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);
+    //交给 block 处理
+    if (_scanResultBlock) {
+        _scanResultBlock(self, resultStr);
+    }
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker{
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+#pragma mark public
+- (void)startScan{
+    _isScaning = YES;
+    [self.videoPreviewLayer.session startRunning];
+    [self scanLineStartAction];
+}
+- (void)stopScan{
+    _isScaning = NO;
     [self.videoPreviewLayer.session stopRunning];
     [self scanLineStopAction];
 }

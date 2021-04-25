@@ -6,28 +6,31 @@
 //  Copyright (c) 2014年 Coding. All rights reserved.
 //
 
-#define kCellIdentifier_Input_OnlyText_Cell @"Input_OnlyText_Cell"
+#define kCellIdentifier_Input_OnlyText_Cell_Text @"Input_OnlyText_Cell_Text"
+#define kCellIdentifier_Input_OnlyText_Cell_Captcha @"Input_OnlyText_Cell_Captcha"
+#define kCellIdentifier_Input_OnlyText_Cell_Password @"Input_OnlyText_Cell_Password"
+#define kCellIdentifier_Input_OnlyText_Cell_Phone @"Input_OnlyText_Cell_Phone"
+#define kCellIdentifier_Input_OnlyText_Cell_Company @"Input_OnlyText_Cell_Company"
 
 #import <UIKit/UIKit.h>
 #import "UITapImageView.h"
+#import "PhoneCodeButton.h"
 
 @interface Input_OnlyText_Cell : UITableViewCell
-@property (assign, nonatomic) BOOL isCaptcha, isForLoginVC;
-@property (strong, nonatomic) UIView *lineView;
-@property (strong, nonatomic) UITapImageView *captchaView;
-@property (strong, nonatomic) UIImage *captchaImage;
-@property (weak, nonatomic) IBOutlet UITextField *textField;
-@property (weak, nonatomic) IBOutlet UIButton *clearBtn;
+@property (strong, nonatomic, readonly) UITextField *textField;
+@property (strong, nonatomic) UILabel *countryCodeL;
 
-@property (nonatomic,copy) void(^textValueChangedBlock)(NSString*);
-@property (nonatomic,copy) void(^editDidEndBlock)(NSString*);
+@property (strong, nonatomic, readonly) PhoneCodeButton *verify_codeBtn;
+@property (strong, nonatomic, readonly) UILabel *companySuffixL;
 
-- (IBAction)editDidBegin:(id)sender;
-- (IBAction)editDidEnd:(id)sender;
-- (void)configWithPlaceholder:(NSString *)phStr andValue:(NSString *)valueStr;
-- (IBAction)textValueChanged:(id)sender;
-- (IBAction)clearBtnClicked:(id)sender;
+@property (assign, nonatomic) BOOL isBottomLineShow;
 
-- (void)refreshCaptchaImage;
+@property (nonatomic,copy) void(^textValueChangedBlock)(NSString *);
+@property (nonatomic,copy) void(^editDidBeginBlock)(NSString *);
+@property (nonatomic,copy) void(^editDidEndBlock)(NSString *);
+@property (nonatomic,copy) void(^phoneCodeBtnClckedBlock)(PhoneCodeButton *);
+@property (nonatomic,copy) void(^countryCodeBtnClickedBlock)();
 
+- (void)setPlaceholder:(NSString *)phStr value:(NSString *)valueStr;
++ (NSString *)randomCellIdentifierOfPhoneCodeType;
 @end

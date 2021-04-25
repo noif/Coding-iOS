@@ -18,8 +18,8 @@ typedef NS_ENUM(NSInteger, MRPRStatus) {
 };
 
 @interface MRPR : NSObject
-@property (strong, nonatomic) NSNumber *id, *iid, *srcExist;
-@property (strong, nonatomic) NSString *title, *path, *srcBranch, *desBranch, *merge_status, *src_owner_name;
+@property (strong, nonatomic) NSNumber *id, *iid, *srcExist, *comment_count, *granted;
+@property (strong, nonatomic) NSString *title, *path, *srcBranch, *desBranch, *merge_status, *src_owner_name,*source_branch,*target_branch;
 @property (strong, nonatomic) NSString *des_owner_name, *des_project_name;
 @property (strong, nonatomic) User *author, *action_author;
 @property (strong, nonatomic) NSDate *created_at, *action_at;
@@ -30,6 +30,8 @@ typedef NS_ENUM(NSInteger, MRPRStatus) {
 //Post
 @property (assign, nonatomic) BOOL del_source_branch, can_edit_src_branch;
 @property (strong, nonatomic) NSString *message;
+@property (strong, nonatomic) NSArray *body;
+@property (readwrite, nonatomic, strong) NSDictionary *propertyArrayMap;
 
 + (MRPR *)mrprWithPath:(NSString *)path;
 
@@ -37,7 +39,9 @@ typedef NS_ENUM(NSInteger, MRPRStatus) {
 
 - (BOOL)isMR;
 - (BOOL)isPR;
+- (NSString *)toPrePath;
 - (NSString *)toBasePath;
+- (NSString *)toReviewersPath;
 - (NSString *)toCommitsPath;
 - (NSString *)toFileChangesPath;
 - (NSString *)toFileLineChangesPath;
@@ -45,5 +49,7 @@ typedef NS_ENUM(NSInteger, MRPRStatus) {
 - (NSDictionary *)toAcceptParams;
 - (NSString *)toRefusePath;
 - (NSString *)toCancelPath;
+- (NSString *)toCancelMRPath;
+- (NSString *)toAuthorizationPath;
 
 @end
